@@ -12,3 +12,9 @@ Quanto aos Critérios de Aceitação, a aplicação do formato Gherkin (Given-Wh
 
 Em suma, os artefatos gerados nesta etapa apresentam maturidade suficiente para subsidiar diretamente as fases subsequentes de Arquitetura e Construção, exigindo intervenção humana mínima para refinamentos.
 
+# Casos de Uso
+
+A análise dos Casos de Uso gerados pelo modelo SWE 1.0 confirma a consistência técnica observada nas etapas anteriores, apresentando uma especificação funcional robusta e bem estruturada. A ferramenta atendeu plenamente ao formato solicitado, definindo com precisão Atores, Pré-condições, Fluxos Principais e Pós-condições para dez cenários distintos, cobrindo tanto as operações de front-office (Reserva, Check-in, Check-out) quanto as de back-office (Gestão de Quartos, Relatórios, Manutenção).
+
+A granularidade dos passos nos fluxos principais é adequada para um nível de abstração de sistema, garantindo clareza para o desenvolvimento posterior. O modelo também integrou logicamente as pré-condições de segurança e validação de regras de negócio, consolidando uma documentação apta a orientar as fases de Arquitetura e Implementação sem necessidade de refatorações significativas.
+

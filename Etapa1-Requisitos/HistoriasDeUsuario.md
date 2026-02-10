@@ -1,5 +1,6 @@
 “Crie as histórias de usuário no formato padrão (Como [tipo de usuário], eu quero…, para que…).”:
 
+---
 # Histórias de Usuário
 
 ## Módulo de Gestão de Quartos

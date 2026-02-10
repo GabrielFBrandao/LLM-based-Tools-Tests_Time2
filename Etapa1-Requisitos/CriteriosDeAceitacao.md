@@ -1,6 +1,6 @@
 “Inclua critérios de aceitação no formato padrão (Given-When-Then).”
 
-
+---
 Vou adicionar critérios de aceitação detalhados para cada história de usuário, seguindo o formato Gherkin (Given-When-Then). Vou começar com as histórias de maior prioridade:
 
 ## Módulo de Gestão de Quartos

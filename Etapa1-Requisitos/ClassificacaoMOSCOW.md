@@ -1,3 +1,6 @@
+“Classifique-os por prioridade (MoSCoW).”
+
+---
 Aqui está a classificação dos requisitos utilizando o método MoSCoW (Must have, Should have, Could have, Won't have):
 
 ## Must Have (Essenciais - Sem estes, o sistema não atende ao propósito básico)

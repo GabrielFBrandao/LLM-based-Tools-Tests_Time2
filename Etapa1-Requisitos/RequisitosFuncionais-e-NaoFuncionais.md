@@ -1,3 +1,6 @@
+“Liste requisitos funcionais (RF) e não funcionais (RNF) para este sistema.”
+
+---
 # Requisitos do Sistema de Reserva de Hotel
 
 ## Requisitos Funcionais (RF)
