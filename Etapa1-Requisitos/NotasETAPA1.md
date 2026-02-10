@@ -18,3 +18,10 @@ A análise dos Casos de Uso gerados pelo modelo SWE 1.0 confirma a consistência
 
 A granularidade dos passos nos fluxos principais é adequada para um nível de abstração de sistema, garantindo clareza para o desenvolvimento posterior. O modelo também integrou logicamente as pré-condições de segurança e validação de regras de negócio, consolidando uma documentação apta a orientar as fases de Arquitetura e Implementação sem necessidade de refatorações significativas.
 
+# Rastreabilidade Inicial
+
+A execução da tarefa demonstrou capacidade de organização lógica por parte do modelo, mas revelou limitações importantes na precisão semântica e na validação de cobertura.
+
+A ferramenta estruturou corretamente a relação entre Requisitos Funcionais (RFs) e Histórias de Usuário (HUs), destacando-se pela identificação assertiva de Requisitos Não Funcionais transversais (como desempenho e suporte a idioma), os quais foram corretamente classificados como "aplicáveis a todo o sistema", evitando redundâncias desnecessárias na matriz.
+
+Contudo, detectou-se uma inconsistência técnica crítica no tratamento de lacunas herdadas da etapa anterior. Ao tentar vincular o RF-004 (Exclusão Lógica) e o RF-003 (Atualização), a ferramenta forçou associações com histórias de criação (HU-003) e alteração de status (HU-004), visto que não havia gerado histórias específicas para exclusão ou edição completa de dados anteriormente. Esse comportamento indica uma priorização do preenchimento do artefato em detrimento da sinalização de falta de cobertura, gerando um "falso positivo" de rastreabilidade que exigiria intervenção humana para correção.
