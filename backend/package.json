@@ -1,0 +1,20 @@
+{
+  "name": "hotel-reservation-backend-tests",
+  "version": "1.0.0",
+  "description": "Testes para o sistema de reserva hoteleira",
+  "scripts": {
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:unit": "jest --testPathPattern=tests/unit",
+    "test:criar": "jest QuartosService.criar.spec.ts",
+    "test:atualizar": "jest QuartosService.atualizar.spec.ts"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.0",
+    "@types/node": "^20.0.0",
+    "jest": "^29.5.0",
+    "ts-jest": "^29.1.0",
+    "typescript": "^5.0.0"
+  }
+}
