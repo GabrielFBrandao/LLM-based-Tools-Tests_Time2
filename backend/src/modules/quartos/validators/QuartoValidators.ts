@@ -1,7 +1,26 @@
+/**
+ * Validators - Validações seguindo Single Responsibility Principle
+ * 
+ * Decisões de Design:
+ * - Cada validator valida apenas um aspecto (SRP)
+ * - Interface IValidator permite extensão (OCP)
+ * - Validators são reutilizáveis e componíveis
+ * - Lançam ValidationError em caso de falha (fail-fast)
+ * 
+ * Benefícios:
+ * - Fácil testar isoladamente
+ * - Fácil adicionar novos validators
+ * - Reutilizáveis em diferentes contextos
+ */
+
 import { ValidationError } from '../errors/QuartoErrors';
 import { TipoQuarto, StatusQuarto, TipoCama } from '../entities';
 
-// Interface Segregation Principle
+/**
+ * Interface genérica para validators
+ * Decisão: Interface Segregation Principle - interface pequena e focada
+ * Genérica para permitir validators de diferentes tipos
+ */
 export interface IValidator<T> {
   validate(data: T): void;
 }
@@ -60,7 +79,13 @@ export class TipoCamaValidator implements IValidator<string> {
   }
 }
 
-// Validator composto para criar quarto
+/**
+ * Validator composto para criar quarto
+ * Decisão: Composition over Inheritance
+ * - Compõe validators simples ao invés de herdar
+ * - Dependency Injection dos validators
+ * - Facilita testes (pode injetar mocks)
+ */
 export class CriarQuartoValidator {
   constructor(
     private numeroValidator: NumeroQuartoValidator,

@@ -1,13 +1,45 @@
+/**
+ * QuartosController - Camada de Apresentação (HTTP)
+ * 
+ * Decisões de Design:
+ * - Single Responsibility: apenas lidar com HTTP (request/response)
+ * - Dependency Inversion: depende de QuartosService (abstração)
+ * - Arrow functions para bind automático de 'this'
+ * - Tratamento de erros centralizado
+ * - Mapeamento de erros de domínio para status HTTP
+ * 
+ * Responsabilidades:
+ * - Receber requisições HTTP
+ * - Validar parâmetros de rota
+ * - Chamar service apropriado
+ * - Mapear erros para status HTTP
+ * - Retornar respostas HTTP
+ * 
+ * NÃO faz:
+ * - Lógica de negócio (delega ao service)
+ * - Acesso a banco de dados (delega ao service)
+ * - Validações complexas (delega ao service/validators)
+ */
+
 import { Request, Response, NextFunction } from 'express';
 import { QuartosService } from '../services/QuartosService';
 import { CriarQuartoDTO, AtualizarQuartoDTO } from '../dtos/QuartoDTO';
 import { StatusQuarto } from '../entities';
 import { DomainError } from '../errors/QuartoErrors';
 
-// Controller seguindo Single Responsibility Principle
 export class QuartosController {
+  /**
+   * Construtor com Dependency Injection
+   * Decisão: Injetar service para facilitar testes (pode mockar service)
+   * readonly: service não deve ser modificado após construção
+   */
   constructor(private readonly service: QuartosService) {}
 
+  /**
+   * POST /quartos - Cria novo quarto
+   * Decisão: Arrow function para bind automático de 'this'
+   * Permite usar diretamente em rotas sem .bind()
+   */
   criar = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const dto: CriarQuartoDTO = req.body;
@@ -57,6 +89,12 @@ export class QuartosController {
     }
   };
 
+  /**
+   * PATCH /quartos/:id/status - Altera status do quarto
+   * Decisão: Endpoint separado para alteração de status
+   * - Valida status antes de chamar service
+   * - Facilita auditoria de mudanças de status
+   */
   alterarStatus = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const id = this.parseId(req.params.id);
@@ -81,7 +119,13 @@ export class QuartosController {
     }
   };
 
-  // Métodos privados para Clean Code
+  // ========== Métodos Privados - Clean Code ==========
+
+  /**
+   * Parse e valida ID da rota
+   * Decisão: Método privado reutilizável (DRY)
+   * Lança erro se ID inválido (fail-fast)
+   */
   private parseId(id: string): number {
     const parsedId = parseInt(id, 10);
     if (isNaN(parsedId)) {
@@ -90,12 +134,30 @@ export class QuartosController {
     return parsedId;
   }
 
+  /**
+   * Valida se status é válido
+   * Decisão: Validação no controller para retornar erro HTTP apropriado
+   * Evita chamar service com dados inválidos
+   */
   private validateStatus(status: string): void {
     if (!Object.values(StatusQuarto).includes(status as StatusQuarto)) {
       throw new Error('Status inválido');
     }
   }
 
+  /**
+   * Tratamento centralizado de erros
+   * 
+   * Decisão: Centralizar tratamento para consistência
+   * - Erros de domínio: mapeados para status HTTP específicos
+   * - Erros genéricos: 400 Bad Request
+   * - Erros desconhecidos: delegados ao middleware de erro do Express
+   * 
+   * Benefícios:
+   * - Consistência nas respostas de erro
+   * - Fácil adicionar novos tipos de erro
+   * - Separação de responsabilidades
+   */
   private handleError(error: unknown, res: Response, next: NextFunction): void {
     if (error instanceof DomainError) {
       res.status(this.getStatusCode(error)).json({ 
@@ -109,6 +171,17 @@ export class QuartosController {
     }
   }
 
+  /**
+   * Mapeia erros de domínio para status HTTP
+   * 
+   * Decisão: Mapeamento explícito para clareza
+   * - 404: Recurso não encontrado
+   * - 409: Conflito (recurso já existe)
+   * - 400: Requisição inválida
+   * - 500: Erro desconhecido (fallback)
+   * 
+   * Benefício: Fácil adicionar novos mapeamentos
+   */
   private getStatusCode(error: DomainError): number {
     const errorName = error.constructor.name;
     

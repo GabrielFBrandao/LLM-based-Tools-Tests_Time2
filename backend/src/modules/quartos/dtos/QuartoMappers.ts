@@ -1,3 +1,18 @@
+/**
+ * Mappers - Conversão entre Entidades e DTOs
+ * 
+ * Decisões de Design:
+ * - Cada mapper tem uma única responsabilidade (SRP)
+ * - Mappers são reutilizáveis e componíveis
+ * - Separação entre entidade de domínio e representação externa
+ * 
+ * Benefícios:
+ * - Entidades não são expostas diretamente (segurança)
+ * - Controle sobre o que é serializado
+ * - Diferentes representações para diferentes contextos
+ * - Fácil testar isoladamente
+ */
+
 import { Quarto, Cama } from '../entities';
 import { 
   QuartoResponseDTO, 
@@ -6,7 +21,11 @@ import {
 } from '../dtos/QuartoDTO';
 import { IDTOMapper } from '../interfaces/IQuartoRepository';
 
-// Mapper para Cama
+/**
+ * Mapper para Cama
+ * Decisão: Mapper separado para permitir reutilização
+ * Usado por QuartoResponseMapper
+ */
 export class CamaMapper implements IDTOMapper<Cama, CamaResponseDTO> {
   toDTO(cama: Cama): CamaResponseDTO {
     return {
@@ -16,8 +35,13 @@ export class CamaMapper implements IDTOMapper<Cama, CamaResponseDTO> {
   }
 }
 
-// Mapper para resposta completa de Quarto
+/**
+ * Mapper para resposta completa de Quarto
+ * Decisão: Composition - usa CamaMapper para mapear camas
+ * Retorna todos os dados do quarto (usado em GET /quartos/:id)
+ */
 export class QuartoResponseMapper implements IDTOMapper<Quarto, QuartoResponseDTO> {
+  // Dependency Injection do CamaMapper
   constructor(private camaMapper: CamaMapper) {}
 
   toDTO(quarto: Quarto): QuartoResponseDTO {
@@ -39,7 +63,12 @@ export class QuartoResponseMapper implements IDTOMapper<Quarto, QuartoResponseDT
   }
 }
 
-// Mapper para listagem simplificada
+/**
+ * Mapper para listagem simplificada
+ * Decisão: Mapper separado para listagem (menos dados)
+ * Otimiza transferência de dados em listas grandes
+ * Usado em GET /quartos
+ */
 export class QuartoListMapper implements IDTOMapper<Quarto, ListarQuartosResponseDTO> {
   toDTO(quarto: Quarto): ListarQuartosResponseDTO {
     return {
