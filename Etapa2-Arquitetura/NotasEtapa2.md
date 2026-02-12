@@ -13,3 +13,18 @@ A análise do artefato de Decisões Arquiteturais Críticas confirma que o model
 
 A proposição de padrões de alta complexidade, como CQRS, um poliglotismo no uso de linguagens (PostgreSQL, Redis e MongoDB) e orquestração via Kubernetes, mostra-se incoerente com o escopo de um "único hotel" e a previsão de carga de aproximadamente 100 usuários definidos pelo próprio Windsurf na etapa de Requisitos. Embora as justificativas baseadas em escalabilidade e desempenho sejam teoricamente corretas para grandes ecossistemas distribuídos, sua aplicação neste cenário introduz uma complexidade acidental proibitiva. A gestão de infraestrutura para Blue-Green Deployments e a sincronização de modelos de leitura e escrita (CQRS) geram um custo operacional e cognitivo desproporcional ao valor de negócio, evidenciando uma falha na adequação da solução ao tamanho real do problema.
 
+# Modelagem
+
+**DIAGRAMA DE COMPONENETES:**
+A análise do Diagrama de Componentes gerado revela uma desconexão significativa entre a representação visual e a documentação textual produzida nas etapas anteriores. O artefato apresenta baixa legibilidade devido ao excesso de conexões e elementos, resultando em uma poluição visual que compromete sua função primária de comunicar a estrutura do sistema de forma clara.
+
+Observa-se uma incoerência técnica flagrante: enquanto a decisão arquitetural prévia defendia um "monolito modular" para simplificar a operação, o diagrama ilustra uma arquitetura de microsserviços plenamente distribuída, com múltiplas camadas de mediação e protocolos de comunicação complexos. Além disso, a ferramenta expandiu o escopo de forma arbitrária ao incluir componentes não solicitados nos requisitos originais, como aplicativos móveis nativos e seus respectivos gateways. O resultado é uma representação que prioriza a demonstração de sintaxe técnica em detrimento da aderência à realidade e à simplicidade exigida pelo projeto de um único hotel.
+
+**DIAGRAMA DE CLASSES:**
+
+A análise do Diagrama de Classes revela uma recuperação significativa na qualidade técnica e na coerência projetual em comparação ao teste anterior. O artefato apresenta uma modelagem de domínio limpa, coesa e alinhada às boas práticas de estruturação de software, demonstrando uma compreensão clara das entidades fundamentais do negócio.
+
+O ponto alto da modelagem reside na abstração eficaz de conceitos temporais e geográficos. A criação de estruturas específicas para encapsular a lógica de períodos (check-in/check-out) e endereços demonstra sofisticação técnica, centralizando regras de negócio essenciais e evitando a duplicação de validações. Além disso, a representação das entidades reflete com precisão os requisitos elicitados inicialmente: a inclusão de atributos detalhados para comodidades e a flexibilidade na configuração dos dormitórios atendem diretamente às especificidades do cenário de teste.
+
+Em suma, ao contrário da representação arquitetural prévia, este artefato respeita o princípio da parcimônia e da adequação ao escopo. O modelo entregou uma visão legível e semanticamente rica, apta a servir como um guia confiável para a fase de implementação, sem introduzir complexidades acidentais ou elementos desnecessários ao funcionamento de um sistema para um único hotel.
+
