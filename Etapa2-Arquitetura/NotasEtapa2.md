@@ -28,3 +28,8 @@ O ponto alto da modelagem reside na abstração eficaz de conceitos temporais e 
 
 Em suma, ao contrário da representação arquitetural prévia, este artefato respeita o princípio da parcimônia e da adequação ao escopo. O modelo entregou uma visão legível e semanticamente rica, apta a servir como um guia confiável para a fase de implementação, sem introduzir complexidades acidentais ou elementos desnecessários ao funcionamento de um sistema para um único hotel.
 
+# Padrões de Projeto
+
+As soluções apresentadas denotam alta capacidade da ferramenta em criar código de forma a atender os requisitos estabelecidos anteriormente utilizando de uma sintaxe impecável em Typescript. Contudo, observa-se novamente a tendência ao over engineering. A recomendação de padrões de alta complexidade mostra-se desproporcional ao escopo de um sistema para um único hotel. Embora tecnicamente viáveis, tais abordagens introduzem uma complexidade acidental que onera o desenvolvimento sem trazer benefícios tangíveis de performance ou organização para este cenário específico. O modelo atua, portanto, como um repositório de conhecimento técnico avançado, mas carece da sensibilidade necessária para adequar a solução ao tamanho real do problema proposto.
+
+
