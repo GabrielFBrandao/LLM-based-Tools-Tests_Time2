@@ -1,60 +1,55 @@
 import { Quarto, StatusQuarto } from '../entities';
+import { IQuartoRepository } from '../interfaces/IQuartoRepository';
+import { QuartoNaoEncontradoError } from '../errors/QuartoErrors';
 
-export interface IQuartoRepository {
-  findAll(): Promise<Quarto[]>;
-  findById(id: number): Promise<Quarto | null>;
-  findByNumero(numero: number): Promise<Quarto | null>;
-  findByStatus(status: StatusQuarto): Promise<Quarto[]>;
-  create(quarto: Quarto): Promise<Quarto>;
-  update(id: number, quarto: Partial<Quarto>): Promise<Quarto>;
-  delete(id: number): Promise<void>;
-}
-
-// Implementação em memória para exemplo
+// Implementação em memória seguindo Dependency Inversion Principle
 export class QuartoRepositoryInMemory implements IQuartoRepository {
-  private quartos: Quarto[] = [];
+  private quartos: Map<number, Quarto> = new Map();
   private currentId = 1;
 
   async findAll(): Promise<Quarto[]> {
-    return [...this.quartos];
+    return Array.from(this.quartos.values());
   }
 
   async findById(id: number): Promise<Quarto | null> {
-    return this.quartos.find(q => q.id === id) || null;
+    return this.quartos.get(id) || null;
   }
 
   async findByNumero(numero: number): Promise<Quarto | null> {
-    return this.quartos.find(q => q.numero === numero) || null;
+    return Array.from(this.quartos.values())
+      .find(q => q.numero === numero) || null;
   }
 
   async findByStatus(status: StatusQuarto): Promise<Quarto[]> {
-    return this.quartos.filter(q => q.status === status);
+    return Array.from(this.quartos.values())
+      .filter(q => q.status === status);
   }
 
   async create(quarto: Quarto): Promise<Quarto> {
-    quarto.id = this.currentId++;
-    this.quartos.push(quarto);
+    const id = this.currentId++;
+    quarto.id = id;
+    this.quartos.set(id, quarto);
     return quarto;
   }
 
   async update(id: number, dados: Partial<Quarto>): Promise<Quarto> {
-    const index = this.quartos.findIndex(q => q.id === id);
-    if (index === -1) {
-      throw new Error('Quarto não encontrado');
+    const quarto = this.quartos.get(id);
+    if (!quarto) {
+      throw new QuartoNaoEncontradoError(id);
     }
 
-    const quarto = this.quartos[index];
     Object.assign(quarto, dados);
     quarto.updatedAt = new Date();
+    this.quartos.set(id, quarto);
     
     return quarto;
   }
 
   async delete(id: number): Promise<void> {
-    const index = this.quartos.findIndex(q => q.id === id);
-    if (index === -1) {
-      throw new Error('Quarto não encontrado');
+    const exists = this.quartos.has(id);
+    if (!exists) {
+      throw new QuartoNaoEncontradoError(id);
     }
-    this.quartos.splice(index, 1);
+    this.quartos.delete(id);
   }
 }

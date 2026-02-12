@@ -1,26 +1,124 @@
-import { Quarto, Cama, TipoQuarto, StatusQuarto, TipoCama } from '../entities';
-import { IQuartoRepository } from '../repositories/QuartoRepository';
+import { Quarto, Cama, StatusQuarto } from '../entities';
+import { IQuartoRepository } from '../interfaces/IQuartoRepository';
 import { 
   CriarQuartoDTO, 
   AtualizarQuartoDTO, 
   QuartoResponseDTO,
-  CamaResponseDTO,
   ListarQuartosResponseDTO 
 } from '../dtos/QuartoDTO';
+import { QuartoResponseMapper, QuartoListMapper, CamaMapper } from '../dtos/QuartoMappers';
+import { 
+  QuartoNaoEncontradoError, 
+  QuartoJaExisteError,
+  QuartoOcupadoError 
+} from '../errors/QuartoErrors';
+import { CriarQuartoValidator } from '../validators/QuartoValidators';
 
+// Service seguindo Single Responsibility Principle
 export class QuartosService {
-  constructor(private quartoRepository: IQuartoRepository) {}
+  private readonly responseMapper: QuartoResponseMapper;
+  private readonly listMapper: QuartoListMapper;
+  private readonly validator: CriarQuartoValidator;
+
+  constructor(
+    private readonly repository: IQuartoRepository,
+    validator?: CriarQuartoValidator
+  ) {
+    const camaMapper = new CamaMapper();
+    this.responseMapper = new QuartoResponseMapper(camaMapper);
+    this.listMapper = new QuartoListMapper();
+    this.validator = validator || this.createDefaultValidator();
+  }
+
+  private createDefaultValidator(): CriarQuartoValidator {
+    const { 
+      NumeroQuartoValidator,
+      CapacidadeValidator,
+      PrecoValidator,
+      TipoQuartoValidator 
+    } = require('../validators/QuartoValidators');
+    
+    return new CriarQuartoValidator(
+      new NumeroQuartoValidator(),
+      new CapacidadeValidator(),
+      new PrecoValidator(),
+      new TipoQuartoValidator()
+    );
+  }
 
   async criar(dto: CriarQuartoDTO): Promise<QuartoResponseDTO> {
-    // Validar se número já existe
-    const quartoExistente = await this.quartoRepository.findByNumero(dto.numero);
-    if (quartoExistente) {
-      throw new Error(`Quarto com número ${dto.numero} já existe`);
+    this.validator.validate(dto);
+
+    await this.verificarNumeroUnico(dto.numero);
+
+    const quarto = this.criarQuartoFromDTO(dto);
+    const quartoCriado = await this.repository.create(quarto);
+    
+    return this.responseMapper.toDTO(quartoCriado);
+  }
+
+  async atualizar(id: number, dto: AtualizarQuartoDTO): Promise<QuartoResponseDTO> {
+    const quarto = await this.buscarQuartoOuFalhar(id);
+
+    this.aplicarAtualizacoes(quarto, dto);
+
+    const quartoAtualizado = await this.repository.update(id, quarto);
+    return this.responseMapper.toDTO(quartoAtualizado);
+  }
+
+  async buscarPorId(id: number): Promise<QuartoResponseDTO> {
+    const quarto = await this.buscarQuartoOuFalhar(id);
+    return this.responseMapper.toDTO(quarto);
+  }
+
+  async listar(): Promise<ListarQuartosResponseDTO[]> {
+    const quartos = await this.repository.findAll();
+    return quartos.map(q => this.listMapper.toDTO(q));
+  }
+
+  async listarDisponiveis(): Promise<ListarQuartosResponseDTO[]> {
+    const quartos = await this.repository.findByStatus(StatusQuarto.LIVRE);
+    return quartos.map(q => this.listMapper.toDTO(q));
+  }
+
+  async alterarStatus(id: number, novoStatus: StatusQuarto): Promise<QuartoResponseDTO> {
+    const quarto = await this.buscarQuartoOuFalhar(id);
+
+    quarto.alterarStatus(novoStatus);
+    
+    const quartoAtualizado = await this.repository.update(id, quarto);
+    return this.responseMapper.toDTO(quartoAtualizado);
+  }
+
+  async deletar(id: number): Promise<void> {
+    const quarto = await this.buscarQuartoOuFalhar(id);
+
+    if (quarto.status === StatusQuarto.OCUPADO) {
+      throw new QuartoOcupadoError();
     }
 
-    // Criar quarto
+    await this.repository.delete(id);
+  }
+
+  // Métodos privados para Clean Code
+  private async verificarNumeroUnico(numero: number): Promise<void> {
+    const quartoExistente = await this.repository.findByNumero(numero);
+    if (quartoExistente) {
+      throw new QuartoJaExisteError(numero);
+    }
+  }
+
+  private async buscarQuartoOuFalhar(id: number): Promise<Quarto> {
+    const quarto = await this.repository.findById(id);
+    if (!quarto) {
+      throw new QuartoNaoEncontradoError(id);
+    }
+    return quarto;
+  }
+
+  private criarQuartoFromDTO(dto: CriarQuartoDTO): Quarto {
     const quarto = new Quarto(
-      0, // ID será gerado pelo repository
+      0,
       dto.numero,
       dto.capacidade,
       dto.tipo,
@@ -31,23 +129,15 @@ export class QuartosService {
       dto.temTV
     );
 
-    // Adicionar camas
     dto.camas.forEach((camaDTO, index) => {
       const cama = new Cama(index + 1, quarto.id, camaDTO.tipoCama);
       quarto.adicionarCama(cama);
     });
 
-    const quartoCriado = await this.quartoRepository.create(quarto);
-    return this.toResponseDTO(quartoCriado);
+    return quarto;
   }
 
-  async atualizar(id: number, dto: AtualizarQuartoDTO): Promise<QuartoResponseDTO> {
-    const quarto = await this.quartoRepository.findById(id);
-    if (!quarto) {
-      throw new Error('Quarto não encontrado');
-    }
-
-    // Atualizar apenas campos fornecidos
+  private aplicarAtualizacoes(quarto: Quarto, dto: AtualizarQuartoDTO): void {
     if (dto.capacidade !== undefined) quarto.capacidade = dto.capacidade;
     if (dto.tipo !== undefined) quarto.tipo = dto.tipo;
     if (dto.precoDiaria !== undefined) quarto.precoDiaria = dto.precoDiaria;
@@ -55,81 +145,5 @@ export class QuartosService {
     if (dto.temCafe !== undefined) quarto.temCafe = dto.temCafe;
     if (dto.temArCondicionado !== undefined) quarto.temArCondicionado = dto.temArCondicionado;
     if (dto.temTV !== undefined) quarto.temTV = dto.temTV;
-
-    const quartoAtualizado = await this.quartoRepository.update(id, quarto);
-    return this.toResponseDTO(quartoAtualizado);
-  }
-
-  async buscarPorId(id: number): Promise<QuartoResponseDTO> {
-    const quarto = await this.quartoRepository.findById(id);
-    if (!quarto) {
-      throw new Error('Quarto não encontrado');
-    }
-    return this.toResponseDTO(quarto);
-  }
-
-  async listar(): Promise<ListarQuartosResponseDTO[]> {
-    const quartos = await this.quartoRepository.findAll();
-    return quartos.map(q => this.toListResponseDTO(q));
-  }
-
-  async listarDisponiveis(): Promise<ListarQuartosResponseDTO[]> {
-    const quartos = await this.quartoRepository.findByStatus(StatusQuarto.LIVRE);
-    return quartos.map(q => this.toListResponseDTO(q));
-  }
-
-  async alterarStatus(id: number, novoStatus: StatusQuarto): Promise<QuartoResponseDTO> {
-    const quarto = await this.quartoRepository.findById(id);
-    if (!quarto) {
-      throw new Error('Quarto não encontrado');
-    }
-
-    quarto.alterarStatus(novoStatus);
-    const quartoAtualizado = await this.quartoRepository.update(id, quarto);
-    return this.toResponseDTO(quartoAtualizado);
-  }
-
-  async deletar(id: number): Promise<void> {
-    const quarto = await this.quartoRepository.findById(id);
-    if (!quarto) {
-      throw new Error('Quarto não encontrado');
-    }
-
-    if (quarto.status === StatusQuarto.OCUPADO) {
-      throw new Error('Não é possível deletar quarto ocupado');
-    }
-
-    await this.quartoRepository.delete(id);
-  }
-
-  private toResponseDTO(quarto: Quarto): QuartoResponseDTO {
-    return {
-      id: quarto.id,
-      numero: quarto.numero,
-      capacidade: quarto.capacidade,
-      tipo: quarto.tipo,
-      precoDiaria: quarto.precoDiaria,
-      temFrigobar: quarto.temFrigobar,
-      temCafe: quarto.temCafe,
-      temArCondicionado: quarto.temArCondicionado,
-      temTV: quarto.temTV,
-      status: quarto.status,
-      camas: quarto.getCamas().map(c => ({
-        id: c.id,
-        tipoCama: c.tipoCama
-      })),
-      createdAt: quarto.createdAt,
-      updatedAt: quarto.updatedAt
-    };
-  }
-
-  private toListResponseDTO(quarto: Quarto): ListarQuartosResponseDTO {
-    return {
-      id: quarto.id,
-      numero: quarto.numero,
-      tipo: quarto.tipo,
-      precoDiaria: quarto.precoDiaria,
-      status: quarto.status
-    };
   }
 }

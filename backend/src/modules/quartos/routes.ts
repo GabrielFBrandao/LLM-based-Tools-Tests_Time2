@@ -3,20 +3,26 @@ import { QuartosController } from '../controllers/QuartosController';
 import { QuartosService } from '../services/QuartosService';
 import { QuartoRepositoryInMemory } from '../repositories/QuartoRepository';
 
+// Factory Pattern para criar instâncias
+class QuartosModuleFactory {
+  static create() {
+    const repository = new QuartoRepositoryInMemory();
+    const service = new QuartosService(repository);
+    const controller = new QuartosController(service);
+    return { controller };
+  }
+}
+
 const router = Router();
+const { controller } = QuartosModuleFactory.create();
 
-// Dependency Injection
-const quartoRepository = new QuartoRepositoryInMemory();
-const quartosService = new QuartosService(quartoRepository);
-const quartosController = new QuartosController(quartosService);
-
-// Rotas
-router.post('/quartos', (req, res) => quartosController.criar(req, res));
-router.get('/quartos', (req, res) => quartosController.listar(req, res));
-router.get('/quartos/disponiveis', (req, res) => quartosController.listarDisponiveis(req, res));
-router.get('/quartos/:id', (req, res) => quartosController.buscarPorId(req, res));
-router.put('/quartos/:id', (req, res) => quartosController.atualizar(req, res));
-router.patch('/quartos/:id/status', (req, res) => quartosController.alterarStatus(req, res));
-router.delete('/quartos/:id', (req, res) => quartosController.deletar(req, res));
+// Rotas RESTful
+router.post('/quartos', controller.criar);
+router.get('/quartos', controller.listar);
+router.get('/quartos/disponiveis', controller.listarDisponiveis);
+router.get('/quartos/:id', controller.buscarPorId);
+router.put('/quartos/:id', controller.atualizar);
+router.patch('/quartos/:id/status', controller.alterarStatus);
+router.delete('/quartos/:id', controller.deletar);
 
 export default router;

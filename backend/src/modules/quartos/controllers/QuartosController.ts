@@ -1,97 +1,125 @@
-import { Request, Response } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import { QuartosService } from '../services/QuartosService';
 import { CriarQuartoDTO, AtualizarQuartoDTO } from '../dtos/QuartoDTO';
 import { StatusQuarto } from '../entities';
+import { DomainError } from '../errors/QuartoErrors';
 
+// Controller seguindo Single Responsibility Principle
 export class QuartosController {
-  constructor(private quartosService: QuartosService) {}
+  constructor(private readonly service: QuartosService) {}
 
-  async criar(req: Request, res: Response): Promise<Response> {
+  criar = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const dto: CriarQuartoDTO = req.body;
-      const quarto = await this.quartosService.criar(dto);
-      return res.status(201).json(quarto);
+      const quarto = await this.service.criar(dto);
+      res.status(201).json(quarto);
     } catch (error) {
-      return res.status(400).json({ 
-        error: error instanceof Error ? error.message : 'Erro ao criar quarto' 
-      });
+      this.handleError(error, res, next);
     }
-  }
+  };
 
-  async atualizar(req: Request, res: Response): Promise<Response> {
+  atualizar = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const id = parseInt(req.params.id);
+      const id = this.parseId(req.params.id);
       const dto: AtualizarQuartoDTO = req.body;
-      const quarto = await this.quartosService.atualizar(id, dto);
-      return res.status(200).json(quarto);
+      const quarto = await this.service.atualizar(id, dto);
+      res.status(200).json(quarto);
     } catch (error) {
-      return res.status(400).json({ 
-        error: error instanceof Error ? error.message : 'Erro ao atualizar quarto' 
-      });
+      this.handleError(error, res, next);
     }
-  }
+  };
 
-  async buscarPorId(req: Request, res: Response): Promise<Response> {
+  buscarPorId = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const id = parseInt(req.params.id);
-      const quarto = await this.quartosService.buscarPorId(id);
-      return res.status(200).json(quarto);
+      const id = this.parseId(req.params.id);
+      const quarto = await this.service.buscarPorId(id);
+      res.status(200).json(quarto);
     } catch (error) {
-      return res.status(404).json({ 
-        error: error instanceof Error ? error.message : 'Quarto não encontrado' 
-      });
+      this.handleError(error, res, next);
     }
-  }
+  };
 
-  async listar(req: Request, res: Response): Promise<Response> {
+  listar = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const quartos = await this.quartosService.listar();
-      return res.status(200).json(quartos);
+      const quartos = await this.service.listar();
+      res.status(200).json(quartos);
     } catch (error) {
-      return res.status(500).json({ 
-        error: error instanceof Error ? error.message : 'Erro ao listar quartos' 
-      });
+      this.handleError(error, res, next);
     }
-  }
+  };
 
-  async listarDisponiveis(req: Request, res: Response): Promise<Response> {
+  listarDisponiveis = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const quartos = await this.quartosService.listarDisponiveis();
-      return res.status(200).json(quartos);
+      const quartos = await this.service.listarDisponiveis();
+      res.status(200).json(quartos);
     } catch (error) {
-      return res.status(500).json({ 
-        error: error instanceof Error ? error.message : 'Erro ao listar quartos disponíveis' 
-      });
+      this.handleError(error, res, next);
     }
-  }
+  };
 
-  async alterarStatus(req: Request, res: Response): Promise<Response> {
+  alterarStatus = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const id = parseInt(req.params.id);
+      const id = this.parseId(req.params.id);
       const { status } = req.body;
       
-      if (!Object.values(StatusQuarto).includes(status)) {
-        return res.status(400).json({ error: 'Status inválido' });
-      }
+      this.validateStatus(status);
 
-      const quarto = await this.quartosService.alterarStatus(id, status);
-      return res.status(200).json(quarto);
+      const quarto = await this.service.alterarStatus(id, status);
+      res.status(200).json(quarto);
     } catch (error) {
-      return res.status(400).json({ 
-        error: error instanceof Error ? error.message : 'Erro ao alterar status' 
-      });
+      this.handleError(error, res, next);
+    }
+  };
+
+  deletar = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const id = this.parseId(req.params.id);
+      await this.service.deletar(id);
+      res.status(204).send();
+    } catch (error) {
+      this.handleError(error, res, next);
+    }
+  };
+
+  // Métodos privados para Clean Code
+  private parseId(id: string): number {
+    const parsedId = parseInt(id, 10);
+    if (isNaN(parsedId)) {
+      throw new Error('ID inválido');
+    }
+    return parsedId;
+  }
+
+  private validateStatus(status: string): void {
+    if (!Object.values(StatusQuarto).includes(status as StatusQuarto)) {
+      throw new Error('Status inválido');
     }
   }
 
-  async deletar(req: Request, res: Response): Promise<Response> {
-    try {
-      const id = parseInt(req.params.id);
-      await this.quartosService.deletar(id);
-      return res.status(204).send();
-    } catch (error) {
-      return res.status(400).json({ 
-        error: error instanceof Error ? error.message : 'Erro ao deletar quarto' 
+  private handleError(error: unknown, res: Response, next: NextFunction): void {
+    if (error instanceof DomainError) {
+      res.status(this.getStatusCode(error)).json({ 
+        error: error.message,
+        type: error.name
       });
+    } else if (error instanceof Error) {
+      res.status(400).json({ error: error.message });
+    } else {
+      next(error);
     }
+  }
+
+  private getStatusCode(error: DomainError): number {
+    const errorName = error.constructor.name;
+    
+    const statusMap: Record<string, number> = {
+      'QuartoNaoEncontradoError': 404,
+      'QuartoJaExisteError': 409,
+      'QuartoOcupadoError': 400,
+      'TransicaoStatusInvalidaError': 400,
+      'ValidationError': 400
+    };
+
+    return statusMap[errorName] || 500;
   }
 }
