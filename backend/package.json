@@ -7,8 +7,11 @@
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "test:unit": "jest --testPathPattern=tests/unit",
+    "test:integration": "jest --testPathPattern=tests/integration",
     "test:criar": "jest QuartosService.criar.spec.ts",
-    "test:atualizar": "jest QuartosService.atualizar.spec.ts"
+    "test:atualizar": "jest QuartosService.atualizar.spec.ts",
+    "test:fluxo": "jest FluxoReserva.integration.spec.ts",
+    "test:all": "jest --testPathPattern=tests"
   },
   "devDependencies": {
     "@types/jest": "^29.5.0",
