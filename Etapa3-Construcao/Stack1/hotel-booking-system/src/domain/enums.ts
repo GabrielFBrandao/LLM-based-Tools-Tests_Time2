@@ -1,0 +1,45 @@
+// Enums do Sistema de Reserva de Hotel
+
+export enum TipoQuarto {
+  BASICO = 'BASICO',
+  MODERNO = 'MODERNO',
+  LUXO = 'LUXO'
+}
+
+export enum StatusQuarto {
+  DISPONIVEL = 'DISPONIVEL',
+  OCUPADO = 'OCUPADO',
+  MANUTENCAO = 'MANUTENCAO',
+  LIMPEZA = 'LIMPEZA'
+}
+
+export enum TipoCama {
+  SOLTEIRO = 'SOLTEIRO',
+  CASAL_KING = 'CASAL_KING',
+  CASAL_QUEEN = 'CASAL_QUEEN'
+}
+
+export enum StatusReserva {
+  PENDENTE = 'PENDENTE',
+  CONFIRMADA = 'CONFIRMADA',
+  CHECK_IN = 'CHECK_IN',
+  CHECK_OUT = 'CHECK_OUT',
+  CANCELADA = 'CANCELADA',
+  NO_SHOW = 'NO_SHOW'
+}
+
+export enum MetodoPagamento {
+  CARTAO_CREDITO = 'CARTAO_CREDITO',
+  CARTAO_DEBITO = 'CARTAO_DEBITO',
+  DINHEIRO = 'DINHEIRO',
+  PIX = 'PIX',
+  TRANSFERENCIA = 'TRANSFERENCIA'
+}
+
+export enum StatusPagamento {
+  PENDENTE = 'PENDENTE',
+  APROVADO = 'APROVADO',
+  RECUSADO = 'RECUSADO',
+  ESTORNADO = 'ESTORNADO',
+  REEMBOLSADO = 'REEMBOLSADO'
+}
