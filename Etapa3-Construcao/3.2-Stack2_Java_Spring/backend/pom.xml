@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!--
+        DECISÃO — SPRING BOOT PARENT:
+        Gerencia versões de todas as dependências via BOM (Bill of Materials).
+        Evita conflitos de versão — não precisamos declarar versão de cada lib.
+    -->
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.3.0</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.hotel</groupId>
+    <artifactId>hotel-reservas</artifactId>
+    <version>1.0.0</version>
+    <name>Sistema de Reserva de Hotel</name>
+    <description>Sistema de gestão de quartos, hóspedes e reservas para um único hotel</description>
+
+    <properties>
+        <java.version>21</java.version>
+        <!--
+            DECISÃO — JAVA 21 LTS:
+            Java 21 é a versão LTS mais recente (suporte até 2031).
+            Traz Records, Pattern Matching, Sealed Classes e Virtual Threads.
+        -->
+    </properties>
+
+    <dependencies>
+
+        <!-- Spring Web MVC — REST Controllers, Jackson, Tomcat embutido -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <!-- Spring Data JPA + Hibernate — Repository Pattern automático -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+
+        <!-- Jakarta Validation — @Valid, @NotBlank, @Positive, etc. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+
+        <!--
+            H2 Database — Banco em memória para desenvolvimento e testes.
+            DECISÃO: scope=runtime pois não é usado em tempo de compilação.
+            Em produção, substituir por postgresql driver.
+        -->
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!--
+            PostgreSQL Driver — Para ambiente de produção (ADR-003).
+            Comentado aqui — habilitar em profile de produção.
+        -->
+        <!--
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        -->
+
+        <!-- Spring Boot Test — JUnit 5, Mockito, MockMvc -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>
