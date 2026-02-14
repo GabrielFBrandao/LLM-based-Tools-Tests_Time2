@@ -1,0 +1,58 @@
+# ============================================
+# .dockerignore
+# ============================================
+# Decisão: Excluir arquivos desnecessários para otimizar build
+
+# Node modules (serão instalados no container)
+node_modules/
+npm-debug.log
+
+# Testes
+tests/
+*.test.ts
+*.spec.ts
+coverage/
+.nyc_output/
+
+# Documentação
+*.md
+docs/
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+logs/
+*.log
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Build artifacts
+dist/
+build/
+*.tsbuildinfo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
