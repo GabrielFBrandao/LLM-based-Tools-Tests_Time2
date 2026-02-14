@@ -118,6 +118,9 @@ class QuartoLimpezaState extends QuartoState {
 export class Quarto {
   // State privado - implementa State Pattern
   private state: QuartoState;
+  private status: StatusQuarto;
+  private readonly _createdAt: Date;
+  private _updatedAt: Date;
 
   constructor(
     public id: number,
@@ -129,11 +132,14 @@ export class Quarto {
     public temCafe: boolean = false,
     public temArCondicionado: boolean = false,
     public temTV: boolean = false,
-    public status: StatusQuarto = StatusQuarto.LIVRE,
+    status: StatusQuarto = StatusQuarto.LIVRE,
     public camas: Cama[] = [],
-    public createdAt: Date = new Date(),
-    public updatedAt: Date = new Date()
+    createdAt: Date = new Date(),
+    updatedAt: Date = new Date()
   ) {
+    this.status = status;
+    this._createdAt = createdAt;
+    this._updatedAt = updatedAt;
     this.state = this.criarState(status);
     this.validarDados();
   }
@@ -181,12 +187,12 @@ export class Quarto {
    */
   adicionarCama(cama: Cama): void {
     this.camas.push(cama);
-    this.updatedAt = new Date();
+    this._updatedAt = new Date();
   }
 
   removerCama(camaId: number): void {
     this.camas = this.camas.filter(cama => cama.id !== camaId);
-    this.updatedAt = new Date();
+    this._updatedAt = new Date();
   }
 
   /**
@@ -202,7 +208,7 @@ export class Quarto {
     }
     this.status = novoStatus;
     this.state = this.criarState(novoStatus);
-    this.updatedAt = new Date();
+    this._updatedAt = new Date();
   }
 
   validarTransicaoStatus(novoStatus: StatusQuarto): boolean {
@@ -243,5 +249,13 @@ export class Quarto {
 
   getPrecoDiaria(): number {
     return this.precoDiaria;
+  }
+
+  getCreatedAt(): Date {
+    return this._createdAt;
+  }
+
+  getUpdatedAt(): Date {
+    return this._updatedAt;
   }
 }
