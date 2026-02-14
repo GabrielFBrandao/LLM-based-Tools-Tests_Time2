@@ -1,0 +1,55 @@
+# ============================================
+# Alertas do Prometheus
+# ============================================
+
+groups:
+  # ALERTAS DE DISPONIBILIDADE
+  - name: availability
+    interval: 30s
+    rules:
+      - alert: ApplicationDown
+        expr: up{job="backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Aplicação está down"
+          description: "Backend não está respondendo por mais de 1 minuto"
+
+      - alert: DatabaseDown
+        expr: app_health_status{service="database"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Banco de dados está down"
+
+  # ALERTAS DE LATÊNCIA
+  - name: latency
+    interval: 30s
+    rules:
+      - alert: HighLatency
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Latência alta detectada"
+          description: "P95 acima de 1 segundo"
+
+  # ALERTAS DE ERROS
+  - name: errors
+    interval: 30s
+    rules:
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum(rate(http_errors_total[5m]))
+            /
+            sum(rate(http_requests_total[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Taxa de erro alta (>5%)"
