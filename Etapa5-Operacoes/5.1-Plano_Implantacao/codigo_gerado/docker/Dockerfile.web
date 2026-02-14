@@ -1,0 +1,54 @@
+# =============================================================================
+# Dockerfile — Frontend React (Hotel Reservas)
+#
+# ESTRATÉGIA: Build multi-estágio
+#
+# Stage 1 — builder: instala deps + executa vite build → arquivos estáticos
+# Stage 2 — runner:  nginx:alpine serve os estáticos (sem Node em produção)
+#
+# DECISÃO — Por que Nginx e não "serve" ou "npx serve"?
+# - Nginx é o servidor HTTP mais usado em produção para estáticos
+# - Suporte nativo a gzip, cache headers, SPA fallback (try_files)
+# - Imagem nginx:alpine tem apenas ~10 MB
+# - Node.js não precisa existir na imagem final do frontend
+# =============================================================================
+
+# ── Stage 1: Build Vite ───────────────────────────────────────────────────────
+FROM node:22-alpine AS builder
+
+WORKDIR /app
+
+# Copia manifests — aproveita cache do Docker quando deps não mudam
+COPY package.json package-lock.json* ./
+RUN npm ci --frozen-lockfile
+
+# Copia todo o código-fonte
+COPY . .
+
+# Build de produção Vite
+# Gera arquivos otimizados em ./dist/ (HTML, JS com hash, CSS minificado)
+ARG VITE_API_URL=http://localhost:3000
+ENV VITE_API_URL=$VITE_API_URL
+
+RUN npm run build
+
+
+# ── Stage 2: Servidor de produção ────────────────────────────────────────────
+FROM nginx:1.27-alpine AS runner
+
+LABEL org.opencontainers.image.title="hotel-reservas-web"
+LABEL org.opencontainers.image.description="Frontend React — Sistema de Reserva de Hotel"
+
+# Remove configuração padrão do nginx
+RUN rm /etc/nginx/conf.d/default.conf
+
+# Copia configuração customizada (ver nginx/nginx.conf)
+COPY nginx/nginx.conf /etc/nginx/conf.d/hotel.conf
+
+# Copia artefatos estáticos buildados
+COPY --from=builder /app/dist /usr/share/nginx/html
+
+# Nginx roda como usuário "nginx" (não-root) por padrão na imagem alpine
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]

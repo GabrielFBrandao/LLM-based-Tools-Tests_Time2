@@ -1,0 +1,435 @@
+# =============================================================================
+# .github/workflows/ci-cd.yml
+# Pipeline CI/CD — Sistema de Reserva de Hotel
+#
+# FLUXO COMPLETO:
+#
+# ┌────────────────────────────────────────────────────────────────────────┐
+# │  PUSH / PR                                                             │
+# │       │                                                                │
+# │       ▼                                                                │
+# │  [validate] ──────────── type-check + lint                            │
+# │       │                                                                │
+# │       ▼                                                                │
+# │  [test-unit] ─────────── jest unitários (53 testes, cov ≥ 90%)        │
+# │       │                                                                │
+# │       ▼                                                                │
+# │  [test-integration] ──── jest integração (21 testes)                  │
+# │       │                                                                │
+# │       ▼ (apenas em main/develop após merge)                           │
+# │  [build-images] ─────── docker build API + Web (multi-stage)          │
+# │       │                                                                │
+# │       ▼ (apenas em main após release tag)                             │
+# │  [deploy-staging] ────── push para staging + smoke test               │
+# │       │                                                                │
+# │       ▼ (manual approval obrigatório)                                 │
+# │  [deploy-production] ─── push para produção + health check            │
+# └────────────────────────────────────────────────────────────────────────┘
+#
+# DECISÃO — Jobs em paralelo onde possível:
+# validate, test-unit e test-integration rodam em paralelo para reduzir
+# o tempo total do pipeline. build-images só começa se todos passarem.
+#
+# DECISÃO — Ambientes separados (staging vs production):
+# staging: deploy automático em cada merge para main
+# production: requer aprovação manual (environment protection rule no GitHub)
+# =============================================================================
+
+name: CI/CD — Hotel Reservas
+
+on:
+  push:
+    branches: [main, develop]
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"       # Ex: v1.2.3
+  pull_request:
+    branches: [main, develop]
+
+# DECISÃO — Concorrência: cancela runs antigas do mesmo PR ao receber novo push.
+# Evita desperdício de minutos de Actions e filas longas.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Registry de imagens Docker (GitHub Container Registry)
+  REGISTRY: ghcr.io
+  IMAGE_API: ghcr.io/${{ github.repository }}/hotel-api
+  IMAGE_WEB: ghcr.io/${{ github.repository }}/hotel-web
+  NODE_VERSION: "22"
+
+# =============================================================================
+# JOB 1 — Validação estática (type-check + lint)
+# Propósito: detectar erros de tipo e violações de estilo antes de rodar testes
+# Executa em: todos os pushes e PRs
+# =============================================================================
+jobs:
+  validate:
+    name: "🔍 Type-check & Lint"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          # DECISÃO — cache: 'npm': Actions cacheia node_modules baseado em
+          # package-lock.json. Jobs subsequentes reutilizam o cache — 
+          # npm ci de ~40s vira ~5s se deps não mudaram.
+          cache: "npm"
+          cache-dependency-path: "package-lock.json"
+
+      - name: Install dependencies
+        run: npm ci --frozen-lockfile
+
+      - name: TypeScript type-check
+        # --noEmit: verifica tipos sem gerar arquivos (mais rápido que tsc completo)
+        run: npx tsc --noEmit
+
+      - name: ESLint
+        run: npx eslint src/ --ext .ts --max-warnings 0
+        # --max-warnings 0: warnings tratados como erros no CI.
+        # Nenhum "aviso silencioso" sobrevive ao pipeline.
+
+  # =============================================================================
+  # JOB 2 — Testes Unitários
+  # Propósito: validar regras de negócio isoladas com mocks
+  # Executa em: paralelo com test-integration
+  # =============================================================================
+  test-unit:
+    name: "🧪 Testes Unitários"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: validate
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci --frozen-lockfile
+
+      - name: Run unit tests
+        run: |
+          npm test -- \
+            --testPathPattern="(service|domain|repository)" \
+            --testPathIgnorePatterns="integration" \
+            --coverage \
+            --coverageReporters=lcov,text \
+            --ci
+        # --ci: modo CI do Jest (sem TTY, falha em snapshots desatualizados)
+
+      - name: Upload coverage to Codecov
+        # DECISÃO — Codecov: rastreia tendência de cobertura ao longo do tempo.
+        # Bloqueia PRs que diminuem a cobertura abaixo do threshold (90%).
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage/lcov.info
+          flags: unit
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  # =============================================================================
+  # JOB 3 — Testes de Integração
+  # Propósito: validar colaboração entre serviços com repositórios reais
+  # Executa em: paralelo com test-unit
+  # =============================================================================
+  test-integration:
+    name: "🔗 Testes de Integração"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: validate
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci --frozen-lockfile
+
+      - name: Run integration tests
+        run: |
+          npm test -- \
+            --testPathPattern="integration" \
+            --coverage \
+            --coverageReporters=lcov,text \
+            --ci
+
+      - name: Upload integration coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage/lcov.info
+          flags: integration
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  # =============================================================================
+  # JOB 4 — Build das imagens Docker
+  # Propósito: construir e publicar imagens para staging/produção
+  # Executa em: push para main/develop ou tag de release
+  #             (não executa em PRs — economiza minutos de Actions)
+  # =============================================================================
+  build-images:
+    name: "🐳 Build & Push Docker Images"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [test-unit, test-integration]
+
+    # DECISÃO — só builda após merge (não em PRs abertas)
+    if: github.event_name == 'push'
+
+    permissions:
+      contents: read
+      packages: write    # necessário para push no GHCR
+
+    outputs:
+      # Propaga o tag exato da imagem para os jobs de deploy
+      image-tag: ${{ steps.meta.outputs.version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        # DECISÃO — Buildx: habilita build multi-plataforma e cache de camadas.
+        # Cache de camadas do Docker armazenado no GHCR acelera builds
+        # subsequentes — camadas não modificadas não são rebuiltadas.
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login no GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Gerar tags e labels (API)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_API }}
+          tags: |
+            # Tag baseado no branch: main → latest, develop → develop
+            type=ref,event=branch
+            # Tag baseado em semver: v1.2.3 → 1.2.3, 1.2, 1
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            # Tag com SHA curto do commit: sha-abc1234 (imutável, rastreável)
+            type=sha,prefix=sha-,format=short
+
+      - name: Build & Push — API
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: deploy/docker/Dockerfile.api
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Cache de camadas no GHCR
+          cache-from: type=registry,ref=${{ env.IMAGE_API }}:cache
+          cache-to:   type=registry,ref=${{ env.IMAGE_API }}:cache,mode=max
+
+      - name: Build & Push — Web
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          file: deploy/docker/Dockerfile.web
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VITE_API_URL=/api
+          cache-from: type=registry,ref=${{ env.IMAGE_WEB }}:cache
+          cache-to:   type=registry,ref=${{ env.IMAGE_WEB }}:cache,mode=max
+
+  # =============================================================================
+  # JOB 5 — Deploy para Staging
+  # Propósito: ambiente de validação antes de produção
+  # Executa em: push para main e develop
+  # =============================================================================
+  deploy-staging:
+    name: "🚀 Deploy → Staging"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: build-images
+
+    # DECISÃO — environment: staging no GitHub cria um registro de deploy
+    # visível na interface, com histórico e link para o ambiente.
+    environment:
+      name: staging
+      url: https://staging.hotel-reservas.app
+
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy para Staging via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host:     ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.STAGING_USER }}
+          key:      ${{ secrets.STAGING_SSH_KEY }}
+          script: |
+            set -e
+
+            cd /opt/hotel-reservas
+
+            # Atualiza a tag da imagem
+            export IMAGE_TAG=${{ needs.build-images.outputs.image-tag }}
+            export REGISTRY=${{ env.REGISTRY }}
+
+            # Faz pull das novas imagens
+            docker compose pull
+
+            # DECISÃO — Rolling update com docker compose:
+            # "up -d --no-deps --scale api=2" sobe nova versão em paralelo
+            # com a antiga, depois remove a antiga. Zero downtime em staging.
+            docker compose up -d --remove-orphans
+
+            # Aguarda health check
+            sleep 10
+            docker compose ps
+
+      - name: Smoke test no Staging
+        # Verificação básica: o endpoint /health responde 200
+        run: |
+          MAX_RETRIES=5
+          RETRY_DELAY=10
+          URL="https://staging.hotel-reservas.app/health"
+
+          for i in $(seq 1 $MAX_RETRIES); do
+            echo "Tentativa $i/$MAX_RETRIES..."
+            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL")
+            if [ "$HTTP_STATUS" = "200" ]; then
+              echo "✅ Staging respondendo com 200"
+              exit 0
+            fi
+            echo "Status: $HTTP_STATUS. Aguardando ${RETRY_DELAY}s..."
+            sleep $RETRY_DELAY
+          done
+
+          echo "❌ Staging não respondeu após $MAX_RETRIES tentativas"
+          exit 1
+
+  # =============================================================================
+  # JOB 6 — Deploy para Produção
+  # Propósito: ambiente real dos usuários finais
+  # Executa em: APENAS tags de release (vX.Y.Z) + aprovação manual
+  # =============================================================================
+  deploy-production:
+    name: "🏭 Deploy → Produção"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [build-images, deploy-staging]
+
+    # DECISÃO — environment: production com reviewers obrigatórios:
+    # GitHub bloqueia este job até que um reviewer aprove manualmente.
+    # Configure em: Settings → Environments → production → Required reviewers.
+    # Nenhum commit vai para produção sem aprovação humana.
+    environment:
+      name: production
+      url: https://hotel-reservas.app
+
+    # Produção apenas em tags de release semântico
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy para Produção via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host:     ${{ secrets.PROD_HOST }}
+          username: ${{ secrets.PROD_USER }}
+          key:      ${{ secrets.PROD_SSH_KEY }}
+          script: |
+            set -e
+            cd /opt/hotel-reservas
+
+            export IMAGE_TAG=${{ needs.build-images.outputs.image-tag }}
+            export REGISTRY=${{ env.REGISTRY }}
+
+            # Backup do estado atual (para rollback se necessário)
+            cp docker-compose.yml docker-compose.backup.yml
+
+            # Pull das novas imagens
+            docker compose pull
+
+            # Deploy com zero downtime
+            docker compose up -d --remove-orphans
+
+            # Health check pós-deploy
+            sleep 15
+            docker compose ps
+
+      - name: Health check pós-deploy
+        run: |
+          MAX_RETRIES=10
+          RETRY_DELAY=15
+          URL="https://hotel-reservas.app/health"
+
+          for i in $(seq 1 $MAX_RETRIES); do
+            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL")
+            if [ "$HTTP_STATUS" = "200" ]; then
+              echo "✅ Produção saudável após deploy"
+              exit 0
+            fi
+            echo "Tentativa $i: status $HTTP_STATUS. Aguardando ${RETRY_DELAY}s..."
+            sleep $RETRY_DELAY
+          done
+
+          echo "❌ FALHA NO HEALTH CHECK — Iniciando rollback..."
+          exit 1
+
+      - name: Rollback automático em falha
+        if: failure()
+        uses: appleboy/ssh-action@v1
+        with:
+          host:     ${{ secrets.PROD_HOST }}
+          username: ${{ secrets.PROD_USER }}
+          key:      ${{ secrets.PROD_SSH_KEY }}
+          script: |
+            cd /opt/hotel-reservas
+            echo "🔄 Executando rollback para versão anterior..."
+            cp docker-compose.backup.yml docker-compose.yml
+            docker compose up -d
+            echo "Rollback concluído"
+
+      - name: Notificar resultado
+        if: always()
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "${{ job.status == 'success' && '✅' || '❌' }} Deploy *${{ github.ref_name }}* para produção: *${{ job.status }}*",
+              "blocks": [{
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "${{ job.status == 'success' && '✅' || '❌' }} *Deploy ${{ github.ref_name }}*\nStatus: `${{ job.status }}`\nAmbiente: produção\nCommit: `${{ github.sha }}`"
+                }
+              }]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

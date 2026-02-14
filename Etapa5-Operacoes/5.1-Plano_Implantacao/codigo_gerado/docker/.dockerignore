@@ -1,0 +1,44 @@
+# =============================================================================
+# .dockerignore — Exclui arquivos desnecessários do contexto de build
+#
+# DECISÃO: Contexto de build menor = build mais rápido + imagem mais segura.
+# Sem este arquivo, o Docker enviaria node_modules (~300MB) e arquivos
+# sensíveis (.env) para o daemon — lento e inseguro.
+# =============================================================================
+
+# Dependências — reinstaladas no stage de build
+node_modules/
+npm-debug.log*
+
+# Artefatos de build locais
+dist/
+build/
+coverage/
+
+# Arquivos de ambiente — NUNCA devem entrar na imagem
+.env
+.env.*
+!.env.example
+
+# Arquivos de teste
+src/**/__tests__/
+src/**/*.test.ts
+src/**/*.spec.ts
+jest.config.*
+
+# Versionamento e IDE
+.git/
+.gitignore
+.github/
+.vscode/
+.idea/
+
+# Deploy (não é necessário dentro da imagem)
+deploy/
+
+# Documentação
+*.md
+docs/
+
+# CI local
+.husky/

@@ -1,0 +1,119 @@
+# =============================================================================
+# docker-compose.yml — Stack local completa
+#
+# Serviços:
+#   hotel-db    → PostgreSQL 16 (banco de dados relacional)
+#   hotel-api   → Node.js / Express (API REST, TypeScript compilado)
+#   hotel-web   → React + Nginx (frontend estático)
+#
+# DECISÃO — Docker Compose para desenvolvimento local:
+# Replica o ambiente de produção localmente sem exigir Kubernetes.
+# "docker compose up" sobe todo o sistema em ~30 segundos.
+#
+# DECISÃO — Rede isolada (hotel-net):
+# Os serviços se comunicam por nome DNS interno (ex: "hotel-db", "hotel-api").
+# Nada é exposto desnecessariamente — apenas as portas mapeadas para o host.
+# =============================================================================
+
+services:
+
+  # ── Banco de dados ───────────────────────────────────────────────────────
+  hotel-db:
+    image: postgres:16-alpine
+    container_name: hotel-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       ${POSTGRES_DB:-hotel_reservas}
+      POSTGRES_USER:     ${POSTGRES_USER:-hotel_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no .env}
+    ports:
+      # Porta 5432 exposta apenas no host de desenvolvimento
+      # Em produção, o banco NÃO é exposto — apenas a API acessa
+      - "5432:5432"
+    volumes:
+      # Volume nomeado: dados persistem entre restarts e rebuilds
+      - hotel-db-data:/var/lib/postgresql/data
+      # Script de inicialização: cria schema na primeira vez
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-hotel_user} -d ${POSTGRES_DB:-hotel_reservas}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - hotel-net
+
+
+  # ── API Node.js ───────────────────────────────────────────────────────────
+  hotel-api:
+    build:
+      context: ..
+      dockerfile: deploy/docker/Dockerfile.api
+      target: runner
+    container_name: hotel-api
+    restart: unless-stopped
+
+    # DECISÃO — depends_on com condition: service_healthy:
+    # A API só sobe APÓS o Postgres passar no healthcheck.
+    # Sem isso, a API tenta conectar no banco antes dele estar pronto e falha.
+    depends_on:
+      hotel-db:
+        condition: service_healthy
+
+    environment:
+      NODE_ENV:     production
+      PORT:         3000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-hotel_user}:${POSTGRES_PASSWORD}@hotel-db:5432/${POSTGRES_DB:-hotel_reservas}
+      # JWT_SECRET é obrigatório — falha explicitamente se não definido
+      JWT_SECRET:   ${JWT_SECRET:?Defina JWT_SECRET no .env}
+      LOG_LEVEL:    ${LOG_LEVEL:-info}
+
+    ports:
+      # Em produção, a API não seria exposta diretamente —
+      # o Nginx faz proxy. Aqui exposta para debug direto.
+      - "3000:3000"
+
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+    networks:
+      - hotel-net
+
+
+  # ── Frontend React + Nginx ────────────────────────────────────────────────
+  hotel-web:
+    build:
+      context: ../frontend
+      dockerfile: ../deploy/docker/Dockerfile.web
+      args:
+        # URL da API vista do browser — prefixo /api/ roteia para o Nginx proxy
+        VITE_API_URL: /api
+    container_name: hotel-web
+    restart: unless-stopped
+
+    depends_on:
+      hotel-api:
+        condition: service_healthy
+
+    ports:
+      - "80:80"
+
+    networks:
+      - hotel-net
+
+
+# ── Volumes ───────────────────────────────────────────────────────────────────
+volumes:
+  hotel-db-data:
+    driver: local
+
+
+# ── Rede isolada ─────────────────────────────────────────────────────────────
+networks:
+  hotel-net:
+    driver: bridge
