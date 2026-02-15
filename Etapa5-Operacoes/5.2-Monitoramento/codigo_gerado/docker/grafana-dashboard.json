@@ -1,0 +1,294 @@
+{
+  "title": "Hotel Reservas — Observabilidade",
+  "uid": "hotel-reservas-main",
+  "schemaVersion": 38,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "tags": ["hotel-reservas", "nodejs", "negocio"],
+  "annotations": {
+    "list": [{
+      "name": "Deploys",
+      "datasource": "prometheus",
+      "expr": "changes(hotel_node_process_start_time_seconds[5m]) > 0",
+      "titleFormat": "Deploy / Restart",
+      "iconColor": "blue"
+    }]
+  },
+  "panels": [
+
+    // ── ROW 1: DISPONIBILIDADE ──────────────────────────────────────────────
+
+    {
+      "id": 1, "type": "row",
+      "title": "🟢 Disponibilidade",
+      "gridPos": {"x":0,"y":0,"w":24,"h":1}
+    },
+    {
+      "id": 2, "type": "stat",
+      "title": "Uptime (últimas 24h)",
+      "gridPos": {"x":0,"y":1,"w":4,"h":4},
+      "targets": [{
+        "expr": "avg_over_time(up{job=\"hotel-api\"}[24h]) * 100",
+        "legendFormat": "uptime %"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent", "min": 0, "max": 100,
+          "thresholds": {"steps": [
+            {"value": 0, "color": "red"},
+            {"value": 99, "color": "yellow"},
+            {"value": 99.5, "color": "green"}
+          ]}
+        }
+      }
+    },
+    {
+      "id": 3, "type": "stat",
+      "title": "Requisições/min (atual)",
+      "gridPos": {"x":4,"y":1,"w":4,"h":4},
+      "targets": [{
+        "expr": "round(rate(http_requests_total{app=\"hotel-reservas\"}[5m]) * 60)",
+        "legendFormat": "req/min"
+      }]
+    },
+    {
+      "id": 4, "type": "stat",
+      "title": "Taxa de Erros 5xx",
+      "gridPos": {"x":8,"y":1,"w":4,"h":4},
+      "targets": [{
+        "expr": "sum(rate(http_requests_total{status_code=~\"5..\"}[5m])) / sum(rate(http_requests_total[5m])) * 100",
+        "legendFormat": "erro %"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {"steps": [
+            {"value": 0, "color": "green"},
+            {"value": 0.1, "color": "yellow"},
+            {"value": 1, "color": "red"}
+          ]}
+        }
+      }
+    },
+    {
+      "id": 5, "type": "stat",
+      "title": "Reservas Ativas Agora",
+      "gridPos": {"x":12,"y":1,"w":4,"h":4},
+      "targets": [{
+        "expr": "hotel_reservas_ativas_atual",
+        "legendFormat": "reservas ativas"
+      }],
+      "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "fixed", "fixedColor": "blue"}}}
+    },
+    {
+      "id": 6, "type": "stat",
+      "title": "Quartos Livres",
+      "gridPos": {"x":16,"y":1,"w":4,"h":4},
+      "targets": [{
+        "expr": "hotel_quartos_por_status{status=\"Livre\"}",
+        "legendFormat": "livres"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {"steps": [
+            {"value": 0, "color": "red"},
+            {"value": 1, "color": "yellow"},
+            {"value": 5, "color": "green"}
+          ]}
+        }
+      }
+    },
+    {
+      "id": 7, "type": "stat",
+      "title": "Latência p95",
+      "gridPos": {"x":20,"y":1,"w":4,"h":4},
+      "targets": [{
+        "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) * 1000",
+        "legendFormat": "p95 ms"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "thresholds": {"steps": [
+            {"value": 0, "color": "green"},
+            {"value": 200, "color": "yellow"},
+            {"value": 500, "color": "red"}
+          ]}
+        }
+      }
+    },
+
+    // ── ROW 2: LATÊNCIA ─────────────────────────────────────────────────────
+
+    {
+      "id": 10, "type": "row",
+      "title": "⏱ Latência",
+      "gridPos": {"x":0,"y":5,"w":24,"h":1}
+    },
+    {
+      "id": 11, "type": "timeseries",
+      "title": "Latência HTTP — p50 / p95 / p99",
+      "gridPos": {"x":0,"y":6,"w":16,"h":8},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, rate(http_request_duration_seconds_bucket{app=\"hotel-reservas\"}[5m])) * 1000",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{app=\"hotel-reservas\"}[5m])) * 1000",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, rate(http_request_duration_seconds_bucket{app=\"hotel-reservas\"}[5m])) * 1000",
+          "legendFormat": "p99"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "ms"}},
+      "options": {
+        "tooltip": {"mode": "multi"},
+        "thresholds": {"steps": [{"value": 500, "color": "red"}]}
+      }
+    },
+    {
+      "id": 12, "type": "timeseries",
+      "title": "Latência por Rota (p95)",
+      "gridPos": {"x":16,"y":6,"w":8,"h":8},
+      "targets": [{
+        "expr": "histogram_quantile(0.95, sum by(route) (rate(http_request_duration_seconds_bucket[5m]))) * 1000",
+        "legendFormat": "{{route}}"
+      }],
+      "fieldConfig": {"defaults": {"unit": "ms"}}
+    },
+
+    // ── ROW 3: TRÁFEGO E ERROS ──────────────────────────────────────────────
+
+    {
+      "id": 20, "type": "row",
+      "title": "📊 Tráfego e Erros HTTP",
+      "gridPos": {"x":0,"y":14,"w":24,"h":1}
+    },
+    {
+      "id": 21, "type": "timeseries",
+      "title": "Requisições por Status (req/s)",
+      "gridPos": {"x":0,"y":15,"w":12,"h":8},
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{status_code=~\"2..\"}[5m]))",
+          "legendFormat": "2xx (sucesso)"
+        },
+        {
+          "expr": "sum(rate(http_requests_total{status_code=~\"4..\"}[5m]))",
+          "legendFormat": "4xx (cliente)"
+        },
+        {
+          "expr": "sum(rate(http_requests_total{status_code=~\"5..\"}[5m]))",
+          "legendFormat": "5xx (servidor)"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "reqps"}}
+    },
+    {
+      "id": 22, "type": "timeseries",
+      "title": "Taxa de Erros 5xx (%)",
+      "gridPos": {"x":12,"y":15,"w":12,"h":8},
+      "targets": [{
+        "expr": "sum(rate(http_requests_total{status_code=~\"5..\"}[5m])) / sum(rate(http_requests_total[5m])) * 100",
+        "legendFormat": "taxa erro %"
+      }],
+      "fieldConfig": {"defaults": {"unit": "percent"}},
+      "options": {
+        "thresholds": {
+          "mode": "absolute",
+          "steps": [{"value": 0.1, "color": "red"}]
+        }
+      }
+    },
+
+    // ── ROW 4: NEGÓCIO ──────────────────────────────────────────────────────
+
+    {
+      "id": 30, "type": "row",
+      "title": "🏨 Métricas de Negócio",
+      "gridPos": {"x":0,"y":23,"w":24,"h":1}
+    },
+    {
+      "id": 31, "type": "piechart",
+      "title": "Distribuição de Quartos por Status",
+      "gridPos": {"x":0,"y":24,"w":8,"h":8},
+      "targets": [{
+        "expr": "hotel_quartos_por_status",
+        "legendFormat": "{{status}}"
+      }]
+    },
+    {
+      "id": 32, "type": "timeseries",
+      "title": "Reservas: Criações e Cancelamentos (por hora)",
+      "gridPos": {"x":8,"y":24,"w":8,"h":8},
+      "targets": [
+        {
+          "expr": "increase(hotel_reserva_criacao_total{resultado=\"sucesso\"}[1h])",
+          "legendFormat": "criadas"
+        },
+        {
+          "expr": "increase(hotel_reserva_cancelamento_total{resultado=\"sucesso\"}[1h])",
+          "legendFormat": "canceladas"
+        }
+      ]
+    },
+    {
+      "id": 33, "type": "timeseries",
+      "title": "Falhas de Reserva por Motivo",
+      "gridPos": {"x":16,"y":24,"w":8,"h":8},
+      "targets": [{
+        "expr": "rate(hotel_reserva_criacao_total{resultado!=\"sucesso\"}[10m])",
+        "legendFormat": "{{resultado}}"
+      }]
+    },
+
+    // ── ROW 5: NODE.JS ──────────────────────────────────────────────────────
+
+    {
+      "id": 40, "type": "row",
+      "title": "🔧 Node.js — Runtime",
+      "gridPos": {"x":0,"y":32,"w":24,"h":1},
+      "collapsed": true
+    },
+    {
+      "id": 41, "type": "timeseries",
+      "title": "Heap Node.js (MB)",
+      "gridPos": {"x":0,"y":33,"w":8,"h":6},
+      "targets": [
+        {
+          "expr": "hotel_node_nodejs_heap_size_used_bytes / 1024 / 1024",
+          "legendFormat": "heap usado (MB)"
+        },
+        {
+          "expr": "hotel_node_nodejs_heap_size_total_bytes / 1024 / 1024",
+          "legendFormat": "heap total (MB)"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}}
+    },
+    {
+      "id": 42, "type": "timeseries",
+      "title": "GC — Duração média por ciclo (ms)",
+      "gridPos": {"x":8,"y":33,"w":8,"h":6},
+      "targets": [{
+        "expr": "rate(hotel_node_nodejs_gc_duration_seconds_sum[5m]) / rate(hotel_node_nodejs_gc_duration_seconds_count[5m]) * 1000",
+        "legendFormat": "GC ms/ciclo"
+      }],
+      "fieldConfig": {"defaults": {"unit": "ms"}}
+    },
+    {
+      "id": 43, "type": "timeseries",
+      "title": "CPU do Processo (%)",
+      "gridPos": {"x":16,"y":33,"w":8,"h":6},
+      "targets": [{
+        "expr": "rate(hotel_node_process_cpu_seconds_total[5m]) * 100",
+        "legendFormat": "cpu %"
+      }],
+      "fieldConfig": {"defaults": {"unit": "percent"}}
+    }
+  ]
+}

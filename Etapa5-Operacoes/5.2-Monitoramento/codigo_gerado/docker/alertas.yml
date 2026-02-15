@@ -1,0 +1,306 @@
+# =============================================================================
+# alertas.yml — Regras de alerta Prometheus
+#
+# ORGANIZAÇÃO POR GRUPO:
+#   1. Disponibilidade   — sistema está respondendo?
+#   2. Latência          — está respondendo rápido o suficiente?
+#   3. Erros HTTP        — está respondendo corretamente?
+#   4. Negócio — Reservas — fluxo principal de negócio está saudável?
+#   5. Negócio — Quartos  — capacidade operacional do hotel
+#   6. Infraestrutura    — banco de dados, memória, CPU
+#
+# ANATOMIA DE UM ALERTA:
+#   for: "5m"   → ignora spikes de < 5 minutos (evita falsos positivos)
+#   severity:   → "critical" (acorda alguém agora) | "warning" (verifica amanhã)
+#   summary:    → O que está errado (para o alerta no Slack/PagerDuty)
+#   description → Por que disparou (para a pessoa que vai investigar)
+#   runbook_url → Link para o procedimento de investigação
+# =============================================================================
+
+groups:
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # GRUPO 1 — DISPONIBILIDADE
+  # SLO: 99.5% das requisições devem retornar resposta (≠ timeout ou conexão recusada)
+  # ────────────────────────────────────────────────────────────────────────────
+  - name: disponibilidade
+    rules:
+
+      # A API está completamente sem resposta (zero requisições em 5 min)
+      # Isso captura: crash, OOM, porta bloqueada, container morto
+      - alert: APIForaDoAr
+        expr: |
+          rate(http_requests_total{app="hotel-reservas"}[5m]) == 0
+        for: 3m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "API Hotel Reservas sem requisições por 3+ minutos"
+          description: |
+            Nenhuma requisição HTTP foi registrada nos últimos 3 minutos.
+            Taxa atual: {{ $value }} req/s.
+            Verificar: container hotel-api, porta 3000, healthcheck do compose.
+          runbook_url: "https://wiki/runbooks/api-fora-do-ar"
+
+      # Endpoint de health check retornando diferente de 2xx
+      - alert: HealthCheckFalhando
+        expr: |
+          rate(http_requests_total{route="/health", status_code=~"[^2].."}[5m]) > 0
+        for: 2m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "Health check da API retornando erro"
+          description: |
+            O endpoint /health está retornando status {{ $labels.status_code }}.
+            Isso indica que a API está no ar mas em estado degradado.
+
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # GRUPO 2 — LATÊNCIA
+  # SLO: p95 < 500ms para rotas de negócio; p99 < 1s
+  # ────────────────────────────────────────────────────────────────────────────
+  - name: latencia
+    rules:
+
+      # p95 de latência acima de 500ms nas últimas 5min (todas as rotas)
+      - alert: LatenciaElevadaP95
+        expr: |
+          histogram_quantile(
+            0.95,
+            rate(http_request_duration_seconds_bucket{app="hotel-reservas"}[5m])
+          ) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Latência p95 acima de 500ms"
+          description: |
+            95% das requisições estão levando mais de {{ $value | humanizeDuration }} para responder.
+            SLO: p95 < 500ms.
+            Investigar: carga no banco, queries lentas, GC do Node.js.
+
+      # p99 de latência acima de 1s — nível crítico
+      - alert: LatenciaElevadaP99
+        expr: |
+          histogram_quantile(
+            0.99,
+            rate(http_request_duration_seconds_bucket{app="hotel-reservas"}[5m])
+          ) > 1.0
+        for: 5m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "Latência p99 acima de 1 segundo — SLO violado"
+          description: |
+            1% das requisições estão levando mais de {{ $value | humanizeDuration }}.
+            Verificar: conexões de banco, locks de tabela, uso de CPU.
+
+      # Latência específica do fluxo de criação de reserva
+      # Esse fluxo faz 2 writes (reserva + quarto) — latência maior é esperada,
+      # mas não deve ultrapassar 200ms no p95 (memória in-memory, futuro: Postgres)
+      - alert: ReservaCriacaoLenta
+        expr: |
+          histogram_quantile(
+            0.95,
+            rate(hotel_reserva_duracao_criacao_seconds_bucket[5m])
+          ) > 0.2
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Criação de reserva p95 > 200ms"
+          description: |
+            O fluxo de criação de reserva (2 operações de repositório) está
+            levando {{ $value | humanizeDuration }} no p95.
+
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # GRUPO 3 — ERROS HTTP
+  # SLO: taxa de erros 5xx < 0.1% das requisições
+  # ────────────────────────────────────────────────────────────────────────────
+  - name: erros_http
+    rules:
+
+      # Taxa de erros 5xx > 0 por mais de 5 min = bug ou crash
+      - alert: ErroInternoServidor
+        expr: |
+          rate(http_requests_total{status_code=~"5.."}[5m])
+          /
+          rate(http_requests_total[5m])
+          > 0.001
+        for: 5m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "Taxa de erros 500 acima de 0.1%"
+          description: |
+            {{ $value | humanizePercentage }} das requisições estão retornando 5xx.
+            Rota mais afetada: {{ $labels.route }}.
+            Verificar logs com: docker logs hotel-api | grep '"level":"error"'
+
+      # Pico de erros 4xx (pode indicar bug no cliente, mudança de API, ou ataque)
+      - alert: TaxaErros4xxElevada
+        expr: |
+          rate(http_requests_total{status_code=~"4.."}[5m])
+          /
+          rate(http_requests_total[5m])
+          > 0.15
+        for: 10m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Taxa de erros 4xx acima de 15%"
+          description: |
+            {{ $value | humanizePercentage }} das requisições retornando 4xx.
+            Pode indicar: mudança de contrato de API sem versioning,
+            bug no frontend, ou tentativas de acesso inválido.
+
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # GRUPO 4 — NEGÓCIO: RESERVAS
+  # Alertas derivados de regras de negócio — não de infraestrutura
+  # ────────────────────────────────────────────────────────────────────────────
+  - name: negocio_reservas
+    rules:
+
+      # Alta taxa de falhas por quarto indisponível pode indicar problema de
+      # sincronização de estado (bug no RF18 ou RF15) ou simplesmente hotel cheio.
+      # Contexto: normal em finais de semana. Anormal se > 50% das tentativas.
+      - alert: AltaTaxaQuartoIndisponivel
+        expr: |
+          rate(hotel_reserva_criacao_total{resultado="falha_quarto_indisponivel"}[10m])
+          /
+          rate(hotel_reserva_criacao_total[10m])
+          > 0.5
+        for: 10m
+        labels:
+          severity: warning
+          team: produto
+        annotations:
+          summary: "Mais de 50% das tentativas de reserva falhando por quarto indisponível"
+          description: |
+            Taxa atual: {{ $value | humanizePercentage }} de falhas por RF18.
+            Pode ser: hotel lotado (normal) ou bug na sincronização quarto↔reserva (investigar).
+            Verificar: proporção de quartos LIVRES vs total.
+
+      # Se o número de reservas ativas cair a zero de repente, algo está errado
+      # (cancelamento em massa, bug, limpeza acidental de dados)
+      - alert: ReservasAtivasZeradas
+        expr: hotel_reservas_ativas_atual == 0
+        for: 15m
+        labels:
+          severity: warning
+          team: produto
+        annotations:
+          summary: "Nenhuma reserva ativa no sistema"
+          description: |
+            O número de reservas ativas zerou. Se não for esperado (ex: início do sistema),
+            pode indicar bug de cancelamento em massa ou problema no Gauge.
+
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # GRUPO 5 — NEGÓCIO: QUARTOS
+  # ────────────────────────────────────────────────────────────────────────────
+  - name: negocio_quartos
+    rules:
+
+      # Todos os quartos ocupados + fila de tentativas = hotel lotado
+      # Alerta para a equipe de operações aumentar capacidade ou avisar clientes
+      - alert: HotelPraticamenteEsgotado
+        expr: |
+          hotel_quartos_por_status{status="Livre"}
+          /
+          (hotel_quartos_por_status{status="Livre"} + hotel_quartos_por_status{status="Ocupado"})
+          < 0.05
+        for: 30m
+        labels:
+          severity: warning
+          team: operacoes
+        annotations:
+          summary: "Menos de 5% dos quartos disponíveis"
+          description: |
+            Apenas {{ $value | humanizePercentage }} dos quartos estão livres.
+            Taxa de quartos em manutenção pode estar inflada — verificar operações.
+
+      # Muitos quartos em manutenção pode indicar problema operacional
+      - alert: AltaManutencaoQuartos
+        expr: |
+          hotel_quartos_por_status{status="Manutenção"}
+          /
+          sum(hotel_quartos_por_status)
+          > 0.3
+        for: 60m
+        labels:
+          severity: warning
+          team: operacoes
+        annotations:
+          summary: "Mais de 30% dos quartos em manutenção"
+          description: |
+            {{ $value | humanizePercentage }} dos quartos estão em manutenção há mais de 1 hora.
+
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # GRUPO 6 — INFRAESTRUTURA
+  # ────────────────────────────────────────────────────────────────────────────
+  - name: infraestrutura
+    rules:
+
+      # Memória heap Node.js acima de 80% do limite configurado
+      - alert: MemoriaNodeElevada
+        expr: |
+          hotel_node_nodejs_heap_size_used_bytes
+          /
+          hotel_node_nodejs_heap_size_total_bytes
+          > 0.8
+        for: 10m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Heap Node.js acima de 80%"
+          description: |
+            Uso atual: {{ $value | humanizePercentage }} do heap.
+            Risco de OOM kill. Verificar memory leaks, considerar aumentar --max-old-space-size.
+
+      # GC excessivo: se a aplicação passa > 10% do tempo em GC, há problema
+      - alert: GCExcessivo
+        expr: |
+          rate(hotel_node_nodejs_gc_duration_seconds_sum[5m])
+          /
+          rate(hotel_node_nodejs_gc_duration_seconds_count[5m])
+          > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Garbage Collection excessivo no Node.js"
+          description: |
+            GC médio: {{ $value | humanizeDuration }} por ciclo.
+            Indica possível memory pressure. Verificar alocações desnecessárias.
+
+      # Banco de dados inacessível (detectado via métricas de operação do repositório)
+      - alert: BancoDeDadosIndisponivel
+        expr: |
+          rate(hotel_db_operacao_total{resultado="erro"}[5m])
+          /
+          rate(hotel_db_operacao_total[5m])
+          > 0.5
+        for: 3m
+        labels:
+          severity: critical
+          team: infra
+        annotations:
+          summary: "Mais de 50% das operações de banco falhando"
+          description: |
+            Taxa de erro de banco: {{ $value | humanizePercentage }}.
+            Verificar: container hotel-db, espaço em disco, conexões esgotadas.
+            Verificar com: docker compose ps hotel-db
