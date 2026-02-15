@@ -1,0 +1,101 @@
+@startuml
+' Diagrama de Classes — Sistema de Reserva de Hotel
+skinparam classAttributeIconSize 0
+skinparam shadowing false
+skinparam dpi 150
+
+' Value Objects
+class CPF {
+  - valor: string
+  + validar(): boolean
+}
+class Email {
+  - valor: string
+  + validar(): boolean
+}
+class NumeroQuarto {
+  - valor: int
+}
+class PrecoDiaria {
+  - valor: decimal
+}
+
+enum TipoQuarto {
+  BASICO
+  MODERNO
+  LUXO
+}
+
+enum Disponibilidade {
+  LIVRE
+  OCUPADO
+  MANUTENCAO_LIMPEZA
+}
+
+enum TipoCama {
+  SOLTEIRO
+  CASAL_KING
+  CASAL_QUEEN
+}
+
+' Entidades principais
+class Quarto {
+  + id: UUID
+  + numero: NumeroQuarto
+  + capacidade: int
+  + tipo: TipoQuarto
+  + precoDiaria: PrecoDiaria
+  + frigobar: boolean
+  + cafeManha: boolean
+  + arCondicionado: boolean
+  + tv: boolean
+  + disponibilidade: Disponibilidade
+  + ativo: boolean
+}
+
+class CamaQuarto {
+  + id: UUID
+  + tipoCama: TipoCama
+}
+
+class Hospede {
+  + id: UUID
+  + nome: string
+  + sobrenome: string
+  + cpf: CPF
+  + email: Email
+  + ativo: boolean
+}
+
+class Reserva {
+  + id: UUID
+  + criadoEm: DateTime
+  + atualizadoEm: DateTime
+  + status: string
+}
+
+' Associações
+Quarto "1" o-- "*" CamaQuarto : possui >
+Reserva "1" --> "1" Quarto : reserva de >
+Reserva "1" --> "1" Hospede : feita por >
+
+' Regras/invariantes (anotações)
+note right of Reserva
+- Ao criar reserva: Quarto deve estar LIVRE
+- Ao reservar: marcar Quarto como OCUPADO
+- Edição respeita disponibilidade
+end note
+
+note right of Quarto
+- numero é único
+- disponibilidade ∈ {LIVRE, OCUPADO, MANUTENCAO_LIMPEZA}
+- soft delete via ativo=false
+end note
+
+note right of Hospede
+- CPF e Email válidos (formato)
+- CPF único
+- soft delete via ativo=false
+end note
+
+@enduml

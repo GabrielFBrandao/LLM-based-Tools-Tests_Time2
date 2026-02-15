@@ -1,0 +1,43 @@
+@startuml
+' Diagrama de Componentes — Sistema de Reserva de Hotel
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam dpi 150
+skinparam defaultTextAlignment center
+
+package "Frontend (SPA)" {
+  [UI Web]
+}
+
+package "Backend Monólito Modular" {
+  [API Gateway/Controller]
+  [Módulo Quartos]
+  [Módulo Hóspedes]
+  [Módulo Reservas]
+  [Módulo Identidade & Acesso]
+  [Módulo Comum (CSV, Auditoria, i18n)]
+}
+
+package "Infraestrutura" {
+  database "PostgreSQL" as DB
+  [Logs/Métricas]
+}
+
+[UI Web] --> [API Gateway/Controller] : REST/JSON
+[API Gateway/Controller] --> [Módulo Identidade & Acesso] : AuthN/AuthZ
+[API Gateway/Controller] --> [Módulo Quartos] : CRUD/Consulta
+[API Gateway/Controller] --> [Módulo Hóspedes] : CRUD/Consulta
+[API Gateway/Controller] --> [Módulo Reservas] : Orquestração
+
+[Módulo Quartos] --> DB : ORM
+[Módulo Hóspedes] --> DB : ORM
+[Módulo Reservas] --> DB : ORM (transações)
+[Módulo Identidade & Acesso] --> DB : ORM
+[Módulo Comum (CSV, Auditoria, i18n)] --> DB : armazenamento auditoria/opcional
+
+[API Gateway/Controller] --> [Logs/Métricas]
+[Módulo Reservas] --> [Logs/Métricas]
+[Módulo Quartos] --> [Logs/Métricas]
+[Módulo Hóspedes] --> [Logs/Métricas]
+
+@enduml
