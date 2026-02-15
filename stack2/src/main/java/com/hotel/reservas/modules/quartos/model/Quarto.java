@@ -6,6 +6,8 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "quartos")
@@ -45,6 +47,9 @@ public class Quarto {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private StatusQuarto status;
+
+    @OneToMany(mappedBy = "quarto", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<Cama> camas = new ArrayList<>();
 
     public enum StatusQuarto {
         LIVRE, OCUPADO, MANUTENCAO, LIMPEZA
