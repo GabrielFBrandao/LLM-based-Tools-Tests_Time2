@@ -19,6 +19,3 @@ O experimento documentado nesta branch segue as seguintes fases:
 - Etapa 5: Operações (Implantação, CI/CD e Observabilidade)
 - Etapa 6: Manutenção (Code Review e Refatoração)
 - Etapa 7: Gerenciamento (Planejamento Ágil e Riscos)
-
----
-*Este repositório faz parte de um Trabalho de Conclusão de Curso (TCC) focado na análise comparativa de ferramentas de IA Generativa no desenvolvimento de software.*
