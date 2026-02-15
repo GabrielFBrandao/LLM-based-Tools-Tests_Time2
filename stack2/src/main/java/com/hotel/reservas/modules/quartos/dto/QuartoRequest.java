@@ -8,6 +8,16 @@ import lombok.Data;
 import java.math.BigDecimal;
 import java.util.List;
 
+/**
+ * DTO para requisição de criação/atualização de Quarto.
+ * 
+ * Decisões de implementação:
+ * - Bean Validation: Validação declarativa no DTO
+ * - @NotBlank vs @NotNull: Strings não podem ser vazias
+ * - @DecimalMin: Validação de valor mínimo para preço
+ * - Mensagens customizadas: Feedback claro ao cliente
+ * - Separação Request/Response: Controle de dados de entrada/saída
+ */
 @Data
 public class QuartoRequest {
 
@@ -33,5 +43,6 @@ public class QuartoRequest {
     @NotNull(message = "Status é obrigatório")
     private Quarto.StatusQuarto status;
 
+    // Lista opcional: Quarto pode não ter camas cadastradas inicialmente
     private List<Cama.TipoCama> tiposCamas;
 }

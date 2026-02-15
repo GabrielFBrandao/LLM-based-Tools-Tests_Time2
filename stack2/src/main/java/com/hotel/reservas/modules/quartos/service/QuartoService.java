@@ -13,14 +13,33 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.stream.Collectors;
 
+/**
+ * Service responsável pela orquestração de operações de Quarto.
+ * 
+ * Decisões de implementação:
+ * - @RequiredArgsConstructor: Injeção via construtor (imutabilidade)
+ * - @Transactional: Garante ACID nas operações de banco
+ * - readOnly=true: Otimização para consultas (não cria snapshot)
+ * - Delega validações para Validator (SRP)
+ * - Delega mapeamento para Mapper (SRP)
+ */
 @Service
 @RequiredArgsConstructor
 public class QuartoService {
 
     private final QuartoRepository quartoRepository;
-    private final QuartoValidator quartoValidator;
-    private final QuartoMapper quartoMapper;
+    private final QuartoValidator quartoValidator; // SRP: Validações isoladas
+    private final QuartoMapper quartoMapper; // SRP: Mapeamento isolado
 
+    /**
+     * Cria um novo quarto.
+     * 
+     * Fluxo:
+     * 1. Valida unicidade do número
+     * 2. Converte DTO para entidade
+     * 3. Persiste no banco
+     * 4. Retorna DTO de resposta
+     */
     @Transactional
     public QuartoResponse criar(QuartoRequest request) {
         quartoValidator.validarNumeroUnico(request.getNumero());
@@ -31,6 +50,15 @@ public class QuartoService {
         return quartoMapper.toResponse(salvo);
     }
 
+    /**
+     * Atualiza um quarto existente.
+     * 
+     * Fluxo:
+     * 1. Busca quarto existente (lança exceção se não encontrado)
+     * 2. Valida novo número (se alterado)
+     * 3. Atualiza dados da entidade
+     * 4. Persiste alterações
+     */
     @Transactional
     public QuartoResponse atualizar(Long id, QuartoRequest request) {
         Quarto quarto = buscarQuartoPorId(id);
@@ -43,6 +71,11 @@ public class QuartoService {
         return quartoMapper.toResponse(atualizado);
     }
 
+    /**
+     * Lista todos os quartos.
+     * 
+     * readOnly=true: Otimização - Hibernate não cria snapshot para dirty checking
+     */
     @Transactional(readOnly = true)
     public List<QuartoResponse> listarTodos() {
         return quartoRepository.findAll().stream()
@@ -56,6 +89,7 @@ public class QuartoService {
         return quartoMapper.toResponse(quarto);
     }
 
+    // Método privado reutilizável: DRY (Don't Repeat Yourself)
     private Quarto buscarQuartoPorId(Long id) {
         return quartoRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Quarto não encontrado com ID: " + id));

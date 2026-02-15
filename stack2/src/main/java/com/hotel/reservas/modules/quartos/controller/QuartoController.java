@@ -11,6 +11,16 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
+/**
+ * Controller REST para gerenciamento de Quartos.
+ * 
+ * Decisões de implementação:
+ * - @RestController: Combina @Controller + @ResponseBody
+ * - @RequestMapping: Prefixo /api/v1 para versionamento de API
+ * - @Valid: Ativa validação Bean Validation nos DTOs
+ * - ResponseEntity: Controle explícito de status HTTP
+ * - HttpStatus.CREATED (201): Semântica correta para criação
+ */
 @RestController
 @RequestMapping("/api/v1/quartos")
 @RequiredArgsConstructor
@@ -18,12 +28,14 @@ public class QuartoController {
 
     private final QuartoService quartoService;
 
+    // POST: Criação de recurso - Retorna 201 Created
     @PostMapping
     public ResponseEntity<QuartoResponse> criar(@Valid @RequestBody QuartoRequest request) {
         QuartoResponse response = quartoService.criar(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
+    // PUT: Atualização completa - Retorna 200 OK
     @PutMapping("/{id}")
     public ResponseEntity<QuartoResponse> atualizar(
             @PathVariable Long id,
@@ -32,12 +44,14 @@ public class QuartoController {
         return ResponseEntity.ok(response);
     }
 
+    // GET: Listagem - Retorna 200 OK
     @GetMapping
     public ResponseEntity<List<QuartoResponse>> listarTodos() {
         List<QuartoResponse> quartos = quartoService.listarTodos();
         return ResponseEntity.ok(quartos);
     }
 
+    // GET por ID: Busca individual - Retorna 200 OK ou 404 Not Found
     @GetMapping("/{id}")
     public ResponseEntity<QuartoResponse> buscarPorId(@PathVariable Long id) {
         QuartoResponse response = quartoService.buscarPorId(id);

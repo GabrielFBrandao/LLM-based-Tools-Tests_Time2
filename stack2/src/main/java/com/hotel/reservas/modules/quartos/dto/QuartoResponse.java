@@ -7,6 +7,15 @@ import lombok.Data;
 import java.math.BigDecimal;
 import java.util.List;
 
+/**
+ * DTO para resposta de operações de Quarto.
+ * 
+ * Decisões de implementação:
+ * - Sem validações: Dados já validados na entidade
+ * - Inclui ID: Necessário para operações subsequentes
+ * - Lista de tipos de camas: Simplifica exibição no frontend
+ * - Separação Request/Response: Evita expor dados desnecessários
+ */
 @Data
 public class QuartoResponse {
 
