@@ -1,0 +1,605 @@
+# GitHub Actions CI/CD Pipeline - Hotel Booking System
+# 
+# Pipeline completo para deploy automatizado
+# 
+# Estratégia:
+# 1. Build & Test (Multi-Stage)
+# 2. Security Scanning
+# 3. Docker Image Building
+# 4. Deploy to Staging
+# 5. E2E Testing
+# 6. Deploy to Production
+# 7. Monitoring & Rollback
+#
+name: Hotel Booking CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+  pull_request:
+    branches: [ main ]
+    types: [opened, synchronize, reopened]
+  release:
+    types: [ published ]
+  schedule:
+    # Daily security scan at 2 AM UTC
+    - cron: '0 2 * * *'
+
+# Environment variables globais
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  NODE_VERSION: '18'
+  JAVA_VERSION: '17'
+  MAVEN_OPTS: '-Xmx1024m'
+
+jobs:
+  # ===========================================
+  # JOB 1: Code Quality & Security
+  # ===========================================
+  quality-check:
+    name: Code Quality & Security
+    runs-on: ubuntu-latest
+    outputs:
+      frontend-sha: ${{ steps.frontend-build.outputs.sha }}
+      backend-sha: ${{ steps.backend-build.outputs.sha }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: src/frontend/package-lock.json
+
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        java-version: ${{ env.JAVA_VERSION }}
+        distribution: 'temurin'
+        cache: maven
+
+    # Frontend Quality Checks
+    - name: Install frontend dependencies
+      run: |
+        cd src/frontend
+        npm ci --prefer-offline --no-audit
+
+    - name: Frontend linting
+      run: |
+        cd src/frontend
+        npm run lint -- --format=json --output-file=lint-report.json
+
+    - name: Frontend type checking
+      run: |
+        cd src/frontend
+        npm run type-check
+
+    - name: Frontend unit tests with coverage
+      run: |
+        cd src/frontend
+        npm run test:coverage -- --ci --watchAll=false --coverageReporters=json-summary
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./src/frontend/coverage/coverage-summary.json
+        flags: frontend
+        name: frontend-coverage
+
+    # Backend Quality Checks
+    - name: Backend tests
+      run: |
+        cd src/main/java
+        mvn clean test
+
+    - name: Backend code coverage
+      run: |
+        cd src/main/java
+        mvn jacoco:report
+
+    - name: Upload backend coverage
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./src/main/java/target/site/jacoco/jacoco.xml
+        flags: backend
+        name: backend-coverage
+
+    # Security Scanning
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+
+    - name: Upload Trivy scan results
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+    - name: OWASP Dependency Check (Frontend)
+      run: |
+        cd src/frontend
+        npm audit --audit-level high
+
+    - name: OWASP Dependency Check (Backend)
+      run: |
+        cd src/main/java
+        mvn org.owasp:dependency-check-maven:check
+
+    # Build artifacts
+    - name: Build frontend
+      id: frontend-build
+      run: |
+        cd src/frontend
+        npm run build
+        echo "sha=$(sha256sum build/static/js/*.js | head -n1 | awk '{print $1}')" >> $GITHUB_OUTPUT
+
+    - name: Build backend
+      id: backend-build
+      run: |
+        cd src/main/java
+        mvn clean package -DskipTests
+        echo "sha=$(sha256sum target/*.jar | head -n1 | awk '{print $1}')" >> $GITHUB_OUTPUT
+
+    - name: Store build artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: build-artifacts
+        path: |
+          src/frontend/build/
+          src/main/java/target/*.jar
+        retention-days: 7
+
+  # ===========================================
+  # JOB 2: Docker Image Building
+  # ===========================================
+  build-images:
+    name: Build Docker Images
+    runs-on: ubuntu-latest
+    needs: quality-check
+    if: github.event_name != 'pull_request'
+    
+    strategy:
+      matrix:
+        service: [frontend, backend]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.service }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./src/${{ matrix.service }}/Dockerfile
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        platforms: linux/amd64,linux/arm64
+
+    - name: Generate SBOM
+      uses: anchore/sbom-action@v0
+      with:
+        image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.service }}@${{ steps.meta.outputs.digest }}
+        format: spdx-json
+        output-file: sbom-${{ matrix.service }}.spdx
+
+    - name: Upload SBOM
+      uses: actions/upload-artifact@v3
+      with:
+        name: sbom-${{ matrix.service }}
+        path: sbom-${{ matrix.service }}.spdx
+
+  # ===========================================
+  # JOB 3: Deploy to Staging
+  # ===========================================
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: build-images
+    if: github.ref == 'refs/heads/develop'
+    environment: staging
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'v1.28.0'
+
+    - name: Configure kubectl
+      run: |
+        echo "${{ secrets.KUBE_CONFIG_STAGING }}" | base64 -d > kubeconfig
+        export KUBECONFIG=kubeconfig
+
+    - name: Deploy to staging
+      run: |
+        export KUBECONFIG=kubeconfig
+        
+        # Update image tags
+        sed -i "s|image: .*frontend:.*|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/frontend:develop-${{ github.sha }}|g" k8s/staging/frontend-deployment.yaml
+        sed -i "s|image: .*backend:.*|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/backend:develop-${{ github.sha }}|g" k8s/staging/backend-deployment.yaml
+        
+        # Apply configurations
+        kubectl apply -f k8s/staging/ -n hotel-booking-staging
+        
+        # Wait for rollout
+        kubectl rollout status deployment/frontend -n hotel-booking-staging --timeout=300s
+        kubectl rollout status deployment/backend -n hotel-booking-staging --timeout=300s
+
+    - name: Health check
+      run: |
+        export KUBECONFIG=kubeconfig
+        
+        # Get service URLs
+        FRONTEND_URL=$(kubectl get svc frontend -n hotel-booking-staging -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+        BACKEND_URL=$(kubectl get svc backend -n hotel-booking-staging -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+        
+        # Health checks
+        curl -f http://$FRONTEND_URL/health || exit 1
+        curl -f http://$BACKEND_URL:8080/actuator/health || exit 1
+        
+        echo "STAGING_FRONTEND_URL=http://$FRONTEND_URL" >> $GITHUB_ENV
+        echo "STAGING_BACKEND_URL=http://$BACKEND_URL:8080" >> $GITHUB_ENV
+
+    - name: Notify Slack
+      uses: 8398a7/action-slack@v3
+      if: always()
+      with:
+        status: ${{ job.status }}
+        channel: '#deployments'
+        webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+        text: |
+          🚀 Staging Deployment ${{ job.status }}
+          📦 Frontend: ${{ env.STAGING_FRONTEND_URL }}
+          🔧 Backend: ${{ env.STAGING_BACKEND_URL }}
+          📝 Commit: ${{ github.sha }}
+
+  # ===========================================
+  # JOB 4: E2E Testing on Staging
+  # ===========================================
+  e2e-tests:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    needs: deploy-staging
+    if: github.ref == 'refs/heads/develop'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: src/frontend/package-lock.json
+
+    - name: Install Playwright
+      run: |
+        cd src/frontend
+        npm ci
+        npx playwright install --with-deps
+
+    - name: Run E2E tests
+      run: |
+        cd src/frontend
+        BASE_URL=${{ needs.deploy-staging.outputs.STAGING_FRONTEND_URL }} \
+        npx playwright test --reporter=html
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: playwright-report
+        path: src/frontend/playwright-report/
+        retention-days: 7
+
+    - name: Upload coverage
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./src/frontend/coverage/lcov.info
+        flags: e2e
+        name: e2e-coverage
+
+  # ===========================================
+  # JOB 5: Deploy to Production
+  # ===========================================
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [build-images, e2e-tests]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: production
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'v1.28.0'
+
+    - name: Configure kubectl
+      run: |
+        echo "${{ secrets.KUBE_CONFIG_PRODUCTION }}" | base64 -d > kubeconfig
+        export KUBECONFIG=kubeconfig
+
+    - name: Create backup before deployment
+      run: |
+        export KUBECONFIG=kubeconfig
+        
+        # Database backup
+        kubectl exec -n hotel-booking-prod deployment/database -- pg_dump -U ${{ secrets.DB_USERNAME }} hotel_booking > backup-$(date +%Y%m%d-%H%M%S).sql
+        
+        # Upload backup to storage
+        aws s3 cp backup-$(date +%Y%m%d-%H%M%S).sql s3://hotel-booking-backups/database/ --storage-class GLACIER
+
+    - name: Blue-Green Deployment
+      run: |
+        export KUBECONFIG=kubeconfig
+        
+        # Update green environment
+        sed -i "s|image: .*frontend:.*|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/frontend:main-${{ github.sha }}|g" k8s/production/frontend-green-deployment.yaml
+        sed -i "s|image: .*backend:.*|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/backend:main-${{ github.sha }}|g" k8s/production/backend-green-deployment.yaml
+        
+        # Deploy green
+        kubectl apply -f k8s/production/ -n hotel-booking-prod
+        
+        # Wait for green to be ready
+        kubectl wait --for=condition=ready pod -l app=frontend-green -n hotel-booking-prod --timeout=300s
+        kubectl wait --for=condition=ready pod -l app=backend-green -n hotel-booking-prod --timeout=300s
+
+    - name: Smoke tests on green
+      run: |
+        export KUBECONFIG=kubeconfig
+        
+        # Get green service URLs
+        GREEN_URL=$(kubectl get svc frontend-green -n hotel-booking-prod -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+        
+        # Health checks
+        curl -f http://$GREEN_URL/health || exit 1
+        
+        # Basic functionality tests
+        curl -f http://$GREEN_URL/api/health || exit 1
+
+    - name: Switch traffic to green
+      run: |
+        export KUBECONFIG=kubeconfig
+        
+        # Update service selector to green
+        kubectl patch service frontend -n hotel-booking-prod -p '{"spec":{"selector":{"version":"green"}}}'
+        kubectl patch service backend -n hotel-booking-prod -p '{"spec":{"selector":{"version":"green"}}}'
+        
+        # Wait for switch
+        sleep 30
+
+    - name: Final health check
+      run: |
+        export KUBECONFIG=kubeconfig
+        
+        # Get production URL
+        PROD_URL=$(kubectl get svc frontend -n hotel-booking-prod -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+        
+        # Final health checks
+        curl -f http://$PROD_URL/health || exit 1
+        curl -f http://$PROD_URL/api/actuator/health || exit 1
+        
+        echo "PRODUCTION_URL=http://$PROD_URL" >> $GITHUB_ENV
+
+    - name: Cleanup blue environment
+      run: |
+        export KUBECONFIG=kubeconfig
+        
+        # Scale down blue after successful deployment
+        kubectl scale deployment frontend-blue --replicas=0 -n hotel-booking-prod
+        kubectl scale deployment backend-blue --replicas=0 -n hotel-booking-prod
+
+    - name: Update monitoring
+      run: |
+        export KUBECONFIG=kubeconfig
+        
+        # Update Prometheus targets
+        kubectl apply -f monitoring/prometheus/ -n hotel-booking-prod
+
+    - name: Notify production deployment
+      uses: 8398a7/action-slack@v3
+      if: always()
+      with:
+        status: ${{ job.status }}
+        channel: '#deployments'
+        webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+        text: |
+          🎉 Production Deployment ${{ job.status }}
+          🌐 Production: ${{ env.PRODUCTION_URL }}
+          📦 Version: ${{ github.sha }}
+          👤 Deployed by: ${{ github.actor }}
+
+  # ===========================================
+  # JOB 6: Rollback (Manual)
+  # ===========================================
+  rollback:
+    name: Rollback Production
+    runs-on: ubuntu-latest
+    needs: deploy-production
+    if: failure() && github.ref == 'refs/heads/main'
+    environment: production
+    
+    steps:
+    - name: Setup kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'v1.28.0'
+
+    - name: Configure kubectl
+      run: |
+        echo "${{ secrets.KUBE_CONFIG_PRODUCTION }}" | base64 -d > kubeconfig
+        export KUBECONFIG=kubeconfig
+
+    - name: Rollback to previous version
+      run: |
+        export KUBECONFIG=kubeconfig
+        
+        # Get previous deployment
+        kubectl rollout undo deployment/frontend -n hotel-booking-prod
+        kubectl rollout undo deployment/backend -n hotel-booking-prod
+        
+        # Wait for rollback
+        kubectl rollout status deployment/frontend -n hotel-booking-prod --timeout=300s
+        kubectl rollout status deployment/backend -n hotel-booking-prod --timeout=300s
+
+    - name: Health check after rollback
+      run: |
+        export KUBECONFIG=kubeconfig
+        
+        PROD_URL=$(kubectl get svc frontend -n hotel-booking-prod -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+        curl -f http://$PROD_URL/health || exit 1
+
+    - name: Notify rollback
+      uses: 8398a7/action-slack@v3
+      with:
+        status: 'failure'
+        channel: '#alerts'
+        webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+        text: |
+          🚨 PRODUCTION ROLLBACK
+          🔄 Rolled back to previous version
+          📝 Commit: ${{ github.sha }}
+          👤 Action by: ${{ github.actor }}
+
+  # ===========================================
+  # JOB 7: Performance Monitoring
+  # ===========================================
+  performance-monitoring:
+    name: Performance Monitoring
+    runs-on: ubuntu-latest
+    needs: deploy-production
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+
+    - name: Run Lighthouse CI
+      run: |
+        npm install -g @lhci/cli@0.12.x
+        lhci autorun
+      env:
+        LHCI_GITHUB_APP_TOKEN: ${{ secrets.LHCI_GITHUB_APP_TOKEN }}
+        LHCI_SERVER_BASE_URL: ${{ needs.deploy-production.outputs.PRODUCTION_URL }}
+
+    - name: Performance regression check
+      run: |
+        # Check if performance metrics degraded
+        node scripts/performance-check.js
+
+    - name: Update performance dashboard
+      run: |
+        curl -X POST "${{ secrets.GRAFANA_WEBHOOK }}" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "dashboard": "performance",
+            "metrics": {
+              "lcp": "'"$(cat .lighthouseci/lhr.json | jq '.audits["largest-contentful-paint"].numericValue')"'",
+              "fid": "'"$(cat .lighthouseci/lhr.json | jq '.audits["first-input-delay"].numericValue')"'",
+              "cls": "'"$(cat .lighthouseci/lhr.json | jq '.audits["cumulative-layout-shift"].numericValue')"'"
+            }
+          }'
+
+  # ===========================================
+  # JOB 8: Security Post-Deployment
+  # ===========================================
+  security-scan:
+    name: Security Post-Deployment
+    runs-on: ubuntu-latest
+    needs: deploy-production
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Container security scan
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/frontend:main-${{ github.sha }}
+        format: 'sarif'
+        output: 'trivy-frontend.sarif'
+
+    - name: Container security scan (Backend)
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/backend:main-${{ github.sha }}
+        format: 'sarif'
+        output: 'trivy-backend.sarif'
+
+    - name: Network security scan
+      run: |
+        # Run network penetration tests
+        nmap -sS -sV -oN nmap-scan.txt ${{ needs.deploy-production.outputs.PRODUCTION_URL }}
+        
+        # SSL/TLS check
+        sslysis --summary ${{ needs.deploy-production.outputs.PRODUCTION_URL }}
+
+    - name: Upload security scan results
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-frontend.sarif'
+
+# ===========================================
+# WORKFLOW DISPATCH (Manual Triggers)
+# ===========================================
+  manual-deploy:
+    name: Manual Deploy
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Deploy to specified environment
+      run: |
+        echo "Deploying to ${{ github.event.inputs.environment }}"
+        # Implementation for manual deployment
