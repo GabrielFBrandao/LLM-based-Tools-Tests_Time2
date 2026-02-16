@@ -40,7 +40,7 @@ A IA não gerou código apenas no chat. Atuando como um **Agente Autônomo na ID
 
 ---
 
-## Avaliação de Métricas (Protocolo do TCC)
+## Avaliação de Métricas
 
 ### 1. Percentual de Requisitos Atendidos
 * **Requisitos Solicitados:** 9 (Classes: Quarto, Hóspede, Reserva. Módulo Quartos: Cadastro, Edição, Listagem. Atributos: Número, Tipo, Preço/hora, Disponibilidade, Camas Múltiplas).
