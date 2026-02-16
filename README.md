@@ -1,4 +1,4 @@
-# Experimento TCC: Avaliação do Qodo (Codeium) em Engenharia de Software
+# Avaliação do Qodo (Codeium) em Engenharia de Software
 
 Esta branch (`tool/qodo`) é dedicada exclusivamente à execução do protocolo de testes práticos utilizando a ferramenta de Inteligência Artificial **Qodo** (anteriormente conhecida como Codeium).
 
