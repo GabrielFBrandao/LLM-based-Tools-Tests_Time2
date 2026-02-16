@@ -1,0 +1,242 @@
+# Grafana Dashboard - Business Metrics
+# Hotel Booking System - Métricas de Negócio
+#
+# Dashboard ID: business-metrics
+# Tags: hotel-booking, business, metrics
+# Refresh: 30s
+# Time Range: Last 1 hour
+#
+dashboard:
+  id: null
+  title: "Hotel Booking - Business Metrics"
+  tags: ["hotel-booking", "business", "metrics"]
+  timezone: "browser"
+  refresh: "30s"
+  time:
+    from: "now-1h"
+    to: "now"
+  
+  panels:
+    # ===========================================
+    # PANEL 1: Booking Rate (Reservas/Hora)
+    # ===========================================
+    - id: 1
+      title: "Booking Rate (Reservas/Hora)"
+      type: "stat"
+      gridPos:
+        h: 8
+        w: 12
+        x: 0
+        y: 0
+      
+      targets:
+        - expr: "rate(bookings_created_total[1h])"
+          legendFormat: "Reservas/Hora"
+          refId: "A"
+      
+      fieldConfig:
+        defaults:
+          unit: "reqps"
+          thresholds:
+            steps:
+              - color: "green"
+                value: null
+              - color: "yellow"
+                value: 1
+              - color: "red"
+                value: 0.5
+      
+      options:
+        reduceOptions:
+          values: false
+          calcs: ["lastNotNull"]
+          fields: ""
+
+    # ===========================================
+    # PANEL 2: Conversion Rate
+    # ===========================================
+    - id: 2
+      title: "Conversion Rate"
+      type: "stat"
+      gridPos:
+        h: 8
+        w: 12
+        x: 12
+        y: 0
+      
+      targets:
+        - expr: "rate(bookings_completed_total[1h]) / rate(bookings_initiated_total[1h])"
+          legendFormat: "Taxa de Conversão"
+          refId: "A"
+      
+      fieldConfig:
+        defaults:
+          unit: "percentunit"
+          thresholds:
+            steps:
+              - color: "red"
+                value: null
+              - color: "yellow"
+                value: 0.3
+              - color: "green"
+                value: 0.5
+
+    # ===========================================
+    # PANEL 3: Cart Abandonment Rate
+    # ===========================================
+    - id: 3
+      title: "Cart Abandonment Rate"
+      type: "stat"
+      gridPos:
+        h: 8
+        w: 12
+        x: 0
+        y: 8
+      
+      targets:
+        - expr: "rate(bookings_abandoned_total[1h]) / rate(bookings_initiated_total[1h])"
+          legendFormat: "Taxa de Abandono"
+          refId: "A"
+      
+      fieldConfig:
+        defaults:
+          unit: "percentunit"
+          thresholds:
+            steps:
+              - color: "green"
+                value: null
+              - color: "yellow"
+                value: 0.5
+              - color: "red"
+                value: 0.7
+
+    # ===========================================
+    # PANEL 4: Room Availability
+    # ===========================================
+    - id: 4
+      title: "Room Availability"
+      type: "stat"
+      gridPos:
+        h: 8
+        w: 12
+        x: 12
+        y: 8
+      
+      targets:
+        - expr: "(rooms_available_total / rooms_total_total) * 100"
+          legendFormat: "Disponibilidade"
+          refId: "A"
+      
+      fieldConfig:
+        defaults:
+          unit: "percent"
+          thresholds:
+            steps:
+              - color: "red"
+                value: null
+              - color: "yellow"
+                value: 10
+              - color: "green"
+                value: 20
+
+    # ===========================================
+    # PANEL 5: Booking Funnel
+    # ===========================================
+    - id: 5
+      title: "Booking Funnel"
+      type: "piechart"
+      gridPos:
+        h: 8
+        w: 12
+        x: 0
+        y: 16
+      
+      targets:
+        - expr: "sum(rate(bookings_initiated_total[1h]))"
+          legendFormat: "Iniciadas"
+          refId: "A"
+        - expr: "sum(rate(bookings_completed_total[1h]))"
+          legendFormat: "Concluídas"
+          refId: "B"
+        - expr: "sum(rate(bookings_cancelled_total[1h]))"
+          legendFormat: "Canceladas"
+          refId: "C"
+        - expr: "sum(rate(bookings_abandoned_total[1h]))"
+          legendFormat: "Abandonadas"
+          refId: "D"
+
+    # ===========================================
+    # PANEL 6: Revenue Trend
+    # ===========================================
+    - id: 6
+      title: "Revenue Trend"
+      type: "graph"
+      gridPos:
+        h: 8
+        w: 12
+        x: 12
+        y: 16
+      
+      targets:
+        - expr: "increase(bookings_revenue_total[1h])"
+          legendFormat: "Receita/Hora"
+          refId: "A"
+      
+      yAxes:
+        - label: "Receita ($)"
+          min: 0
+
+    # ===========================================
+    # PANEL 7: Payment Methods Distribution
+    # ===========================================
+    - id: 7
+      title: "Payment Methods Distribution"
+      type: "piechart"
+      gridPos:
+        h: 8
+        w: 12
+        x: 0
+        y: 24
+      
+      targets:
+        - expr: "sum(rate(payment_completed_total{method=\"credit_card\"}[1h]))"
+          legendFormat: "Cartão de Crédito"
+          refId: "A"
+        - expr: "sum(rate(payment_completed_total{method=\"debit_card\"}[1h]))"
+          legendFormat: "Cartão de Débito"
+          refId: "B"
+        - expr: "sum(rate(payment_completed_total{method=\"pix\"}[1h]))"
+          legendFormat: "PIX"
+          refId: "C"
+        - expr: "sum(rate(payment_completed_total{method=\"boleto\"}[1h]))"
+          legendFormat: "Boleto"
+          refId: "D"
+
+    # ===========================================
+    # PANEL 8: Average Booking Value
+    # ===========================================
+    - id: 8
+      title: "Average Booking Value"
+      type: "stat"
+      gridPos:
+        h: 8
+        w: 12
+        x: 12
+        y: 24
+      
+      targets:
+        - expr: "increase(bookings_revenue_total[1h]) / increase(bookings_completed_total[1h])"
+          legendFormat: "Valor Médio"
+          refId: "A"
+      
+      fieldConfig:
+        defaults:
+          unit: "currencyUSD"
+          thresholds:
+            steps:
+              - color: "red"
+                value: null
+              - color: "yellow"
+                value: 100
+              - color: "green"
+                value: 200

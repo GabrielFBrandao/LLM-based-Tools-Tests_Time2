@@ -1,0 +1,387 @@
+# Fluent Bit Configuration
+# Hotel Booking System - Log Collection and Forwarding
+#
+# Components:
+# - INPUT: Collect logs from containers
+# - FILTER: Parse and enrich logs
+# - OUTPUT: Send to Elasticsearch
+#
+# Service Configuration
+service:
+  flush: 1
+  daemon: off
+  log_level: info
+  parsers_file: parsers.conf
+  plugins_file: plugins.conf
+  streams_file: streams.conf
+  http_server: On
+  http_listen: 0.0.0.0
+  http_port: 2020
+  health_check: On
+  hc_retry_failure_count: 5
+  hc_periodic_interval: 10
+
+# ===========================================
+# INPUT CONFIGURATION
+# ===========================================
+inputs:
+  # Kubernetes Metadata Filter
+  - name: kubernetes
+    path: /var/log/containers/*.log
+    parser: docker
+    tag: kube.*
+    buffer_chunk_size: 512k
+    buffer_max_size: 5M
+    mem_buf_limit: 50MB
+    skip_long_lines: On
+    skip_empty_lines: On
+    read_from_head: false
+    refresh_interval: 10
+    k8s_logging_parser: On
+    k8s_logging_exclude: On
+    labels: On
+    annotations: On
+    merge_log: On
+    merge_log_key: log_processed
+    k8s_metadata:
+      skip_container_name: false
+      skip_master_url: false
+      skip_namespace_name: false
+      skip_pod_name: false
+      skip_pod_id: false
+      skip_labels: false
+      skip_annotations: false
+      skip_container_image: false
+      skip_container_name: false
+      skip_docker_image: false
+      skip_kubernetes_name: false
+
+  # System Logs
+  - name: systemd
+    tag: systemd.*
+    path: /var/log/journal
+    max_entries: 1000
+    read_from_tail: false
+    strip_underscores: true
+    systemd_filter:
+      - "_SYSTEMD_UNIT=kubelet.service"
+      - "_SYSTEMD_UNIT=docker.service"
+      - "_SYSTEMD_UNIT=nginx.service"
+
+  # Nginx Access Logs
+  - name: tail
+    tag: nginx.access
+    path: /var/log/nginx/access.log
+    parser: nginx
+    buffer_chunk_size: 512k
+    buffer_max_size: 5M
+    mem_buf_limit: 50MB
+    skip_long_lines: On
+    skip_empty_lines: On
+    read_from_head: false
+    refresh_interval: 10
+
+  # Nginx Error Logs
+  - name: tail
+    tag: nginx.error
+    path: /var/log/nginx/error.log
+    parser: nginx_error
+    buffer_chunk_size: 512k
+    buffer_max_size: 5M
+    mem_buf_limit: 50MB
+    skip_long_lines: On
+    skip_empty_lines: On
+    read_from_head: false
+    refresh_interval: 10
+
+# ===========================================
+# FILTER CONFIGURATION
+# ===========================================
+filters:
+  # Kubernetes Metadata Enrichment
+  - name: kubernetes
+    match: kube.*
+    merge_log: On
+    keep_log: Off
+    k8s_metadata:
+      skip_container_name: false
+      skip_master_url: false
+      skip_namespace_name: false
+      skip_pod_name: false
+      skip_pod_id: false
+      skip_labels: false
+      skip_annotations: false
+      skip_container_image: false
+      skip_container_name: false
+      skip_docker_image: false
+      skip_kubernetes_name: false
+    labels: On
+    annotations: On
+
+  # Add Environment Information
+  - name: modify
+    match: kube.*
+    add:
+      environment: production
+    conditions:
+      - field: kubernetes.namespace_name
+        operator: =
+        value: hotel-booking-prod
+  - name: modify
+    match: kube.*
+    add:
+      environment: staging
+    conditions:
+      - field: kubernetes.namespace_name
+        operator: =
+        value: hotel-booking-staging
+  - name: modify
+    match: kube.*
+    add:
+      environment: development
+    conditions:
+      - field: kubernetes.namespace_name
+        operator: !=
+        value: hotel-booking-prod
+        value: hotel-booking-staging
+
+  # Parse Application Logs
+  - name: parser
+    match: kube.var.log.containers.*frontend*.log
+    key_name: log
+    parser: frontend_log
+    reserve_data: true
+
+  - name: parser
+    match: kube.var.log.containers.*backend*.log
+    key_name: log
+    parser: backend_log
+    reserve_data: true
+
+  - name: parser
+    match: kube.var.log.containers.*database*.log
+    key_name: log
+    parser: database_log
+    reserve_data: true
+
+  - name: parser
+    match: kube.var.log.containers.*redis*.log
+    key_name: log
+    parser: redis_log
+    reserve_data: true
+
+  # Extract Service Information
+  - name: modify
+    match: kube.var.log.containers.*frontend*.log
+    add:
+      service_type: frontend
+      technology: react
+
+  - name: modify
+    match: kube.var.log.containers.*backend*.log
+    add:
+      service_type: backend
+      technology: spring-boot
+
+  - name: modify
+    match: kube.var.log.containers.*database*.log
+    add:
+      service_type: database
+      technology: postgresql
+
+  - name: modify
+    match: kube.var.log.containers.*redis*.log
+    add:
+      service_type: cache
+      technology: redis
+
+  # Security Event Detection
+  - name: grep
+    match: "*"
+    regex: (?i)(authentication|login|auth).*failed
+    add:
+      security_event: authentication_failure
+      security_severity: medium
+
+  - name: grep
+    match: "*"
+    regex: (?i)(brute.?force|attack|suspicious)
+    add:
+      security_event: suspicious_activity
+      security_severity: high
+
+  - name: grep
+    match: "*"
+    regex: (?i)(union.*select|drop.*table|insert.*into)
+    add:
+      security_event: sql_injection_attempt
+      security_severity: critical
+
+  # Business Event Extraction
+  - name: grep
+    match: "*"
+    regex: booking_(created|completed|cancelled|abandoned)
+    add:
+      business_event: booking
+
+  - name: parser
+    match: "*"
+    key_name: log
+    parser: booking_event
+    reserve_data: true
+
+  # Performance Metrics Extraction
+  - name: grep
+    match: "*"
+    regex: response_time=
+    add:
+      has_response_time: true
+
+  - name: parser
+    match: "*"
+    key_name: log
+    parser: performance_metrics
+    reserve_data: true
+
+  # GeoIP Enrichment for Nginx Logs
+  - name: geoip2
+    match: nginx.access
+    database: /etc/fluent-bit/GeoLite2-City.mmdb
+    lookup_key: remote_addr
+    add:
+      geoip_country: ${geoip.country_code.iso_code}
+      geoip_city: ${geoip.city.names.en}
+      geoip_location: "${geoip.location.latitude},${geoip.location.longitude}"
+
+  # User Agent Parsing
+  - name: ua_parser
+    match: nginx.access
+    key_name: http_user_agent
+    add:
+      user_agent_name: ${ua.family}
+      user_agent_os: ${ua.os.family}
+      user_agent_device: ${ua.device.family}
+
+  # Remove Sensitive Data
+  - name: modify
+    match: "*"
+    remove:
+      - password
+      - token
+      - secret
+      - key
+      - api_key
+      - authorization
+
+  # Add Processing Timestamp
+  - name: modify
+    match: "*"
+    add:
+      processed_at: ${time}
+
+# ===========================================
+# OUTPUT CONFIGURATION
+# ===========================================
+outputs:
+  # Elasticsearch Output
+  - name: es
+    match: "*"
+    host: elasticsearch
+    port: 9200
+    index: hotel-booking-logs-${%Y.%m.%d}
+    type: _doc
+    logstash_format: on
+    logstash_prefix: hotel-booking-logs
+    logstash_dateformat: %Y.%m.%d
+    time_key: "@timestamp"
+    time_key_format: "%Y-%m-%dT%H:%M:%S.%L"
+    include_tag_key: true
+    tag_key: "@log_name"
+    generate_id: true
+    retry_limit: 5
+    es_server_max_attempts: 5
+    es_server_timeout: 5s
+    es_server_bulk_max_wait: 10
+    es_server_bulk_max_size: 5242880
+    tls: off
+    tls.verify: off
+    write_operation: upsert
+    replace_dots: on
+    logstash_format: on
+    logstash_dateformat: %Y.%m.%d
+    logstash_prefix: hotel-booking-logs
+    logstash_suffix: ""
+    logstash_key_format: $tag[%L]
+    http_user: elastic
+    http_passwd: changeme
+
+  # Debug Output (Development Only)
+  - name: stdout
+    match: "*"
+    format: json_lines
+    json_date_key: "@timestamp"
+    json_date_format: iso8601
+
+# ===========================================
+# PARSER CONFIGURATION
+# ===========================================
+parsers_file: parsers.conf
+
+# parsers.conf content:
+# [PARSER]
+#     Name   frontend_log
+#     Format regex
+#     Regex  ^(?<timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)\s+\[(?<log_level>\w+)\]\s+(?<log_message>.*)$
+#     Time_Key timestamp
+#     Time_Format %Y-%m-%dT%H:%M:%S.%LZ
+#     Time_Keep On
+# 
+# [PARSER]
+#     Name   backend_log
+#     Format regex
+#     Regex  ^(?<timestamp>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d{3})\s+(?<log_level>\w+)\s+(?<pid>\d+)\s+---\s+\[(?<thread>[^\]]+)\]\s+(?<logger>[^\s]+)\s+:\s+(?<log_message>.*)$
+#     Time_Key timestamp
+#     Time_Format %Y-%m-%d %H:%M:%S.%L
+#     Time_Keep On
+# 
+# [PARSER]
+#     Name   database_log
+#     Format regex
+#     Regex  ^(?<timestamp>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d{3})\s+\[(?<pid>\d+)\]\s+(?<log_level>\w+):\s+(?<log_message>.*)$
+#     Time_Key timestamp
+#     Time_Format %Y-%m-%d %H:%M:%S.%L
+#     Time_Keep On
+# 
+# [PARSER]
+#     Name   redis_log
+#     Format regex
+#     Regex  ^(?<pid>\d+):(?<role>\w+)\s+(?<timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z)\s+(?<log_message>.*)$
+#     Time_Key timestamp
+#     Time_Format %Y-%m-%dT%H:%M:%S.%LZ
+#     Time_Keep On
+# 
+# [PARSER]
+#     Name   nginx
+#     Format regex
+#     Regex  ^(?<remote_addr>\S+)\s+-\s+(?<remote_user>\S+)\s+\[(?<time_local>[^\]]+)\]\s+"(?<request>[^"]*)"\s+(?<status>\d+)\s+(<body_bytes_sent>\d+)\s+"(?<http_referer>[^"]*)"\s+"(?<http_user_agent>[^"]*)"
+#     Time_Key time_local
+#     Time_Format %d/%b/%Y:%H:%M:%S %z
+#     Time_Keep On
+# 
+# [PARSER]
+#     Name   nginx_error
+#     Format regex
+#     Regex  ^(?<timestamp>\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2}:\d{2})\s+\[(?<log_level>\w+)\]\s+(?<pid>\d+)#(?<tid>\d+):\s+(?<message>.*)$
+#     Time_Key timestamp
+#     Time_Format %Y/%m/%d %H:%M:%S
+#     Time_Keep On
+# 
+# [PARSER]
+#     Name   booking_event
+#     Format regex
+#     Regex  booking_(?<booking_event>\w+):\s+booking_id=(?<booking_id>\w+)\s+user_id=(?<user_id>\w+)\s+amount=(?<amount>\d+\.\d{2})
+# 
+# [PARSER]
+#     Name   performance_metrics
+#     Format regex
+#     Regex  response_time=(?<response_time>\d+\.\d{3})\s+memory_usage=(?<memory_usage>\d+\.\d{2})\s+cpu_usage=(?<cpu_usage>\d+\.\d{2})

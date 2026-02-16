@@ -1,0 +1,315 @@
+/home/walisson/CascadeProjects/hotel-booking-system/monitoring/README-Monitoring.md# Logstash Pipeline Configuration
+# Hotel Booking System - Centralized Logging
+#
+# Pipeline: hotel-booking-logs
+# Input: Beats (Filebeat) from containers
+# Output: Elasticsearch
+# Filters: Parse, enrich, and structure logs
+#
+input:
+  beats:
+    port: 5044
+    host: "0.0.0.0"
+    
+filter:
+  # ===========================================
+  # FILTER 1: Add Environment Metadata
+  # ===========================================
+  - if [kubernetes][namespace] == "hotel-booking-prod":
+    mutate:
+      add_field:
+        environment: "production"
+  - else if [kubernetes][namespace] == "hotel-booking-staging":
+    mutate:
+      add_field:
+        environment: "staging"
+  - else:
+    mutate:
+      add_field:
+        environment: "development"
+
+  # ===========================================
+  # FILTER 2: Parse Application Logs
+  # ===========================================
+  - if [fields][service] == "frontend":
+    # Parse React/Node.js logs
+    grok:
+      match:
+        message: "%{TIMESTAMP_ISO8601:timestamp} \[%{LOGLEVEL:log_level}\] %{GREEDYDATA:log_message}"
+    
+    # Parse error stack traces
+    if [log_level] == "ERROR":
+      multiline:
+        pattern: "^\\s"
+        negate: true
+        match: after
+        
+    # Add frontend-specific fields
+    mutate:
+      add_field:
+        service_type: "frontend"
+        technology: "react"
+        
+  - else if [fields][service] == "backend":
+    # Parse Spring Boot logs
+    grok:
+      match:
+        message: "%{TIMESTAMP_ISO8601:timestamp}  %{LOGLEVEL:log_level} %{NUMBER:pid} --- \[%{DATA:thread}\] %{DATA:logger} : %{GREEDYDATA:log_message}"
+    
+    # Parse Java exceptions
+    if [log_level] in ["ERROR", "WARN"]:
+      multiline:
+        pattern: "^\\s"
+        negate: true
+        match: after
+        
+    # Extract exception types
+    grok:
+      match:
+        log_message: "(?<exception_type>%{WORD:exception_type}Exception): %{GREEDYDATA:exception_message}"
+      tag_on_failure: ["_grokparsefailure_exception"]
+      
+    # Add backend-specific fields
+    mutate:
+      add_field:
+        service_type: "backend"
+        technology: "spring-boot"
+
+  # ===========================================
+  # FILTER 3: Parse Database Logs
+  # ===========================================
+  - else if [fields][service] == "database":
+    # Parse PostgreSQL logs
+    grok:
+      match:
+        message: "%{TIMESTAMP_ISO8601:timestamp} \[%{DATA:pid}\] %{LOGLEVEL:log_level}:  %{GREEDYDATA:log_message}"
+    
+    # Extract SQL queries
+    if [log_message] =~ /statement:/:
+      grok:
+        match:
+          log_message: "statement: %{GREEDYDATA:sql_query}"
+        
+    # Add database-specific fields
+    mutate:
+      add_field:
+        service_type: "database"
+        technology: "postgresql"
+
+  # ===========================================
+  # FILTER 4: Parse Cache Logs
+  # ===========================================
+  - else if [fields][service] == "redis":
+    # Parse Redis logs
+    grok:
+      match:
+        message: "%{NUMBER:pid}:%{WORD:role} %{TIMESTAMP_ISO8601:timestamp} %{GREEDYDATA:log_message}"
+    
+    # Add cache-specific fields
+    mutate:
+      add_field:
+        service_type: "cache"
+        technology: "redis"
+
+  # ===========================================
+  # FILTER 5: Parse Nginx Logs
+  # ===========================================
+  - else if [fields][service] == "nginx":
+    # Parse Nginx access logs
+    grok:
+      match:
+        message: "%{NGINXACCESS}"
+      
+    # Parse user agents
+    if [agent] != "-":
+      useragent:
+        source: "agent"
+        target: "user_agent"
+        
+    # GeoIP enrichment
+    if [clientip] != "-":
+      geoip:
+        source: "clientip"
+        target: "geoip"
+        
+    # Add nginx-specific fields
+    mutate:
+      add_field:
+        service_type: "proxy"
+        technology: "nginx"
+
+  # ===========================================
+  # FILTER 6: Security Event Detection
+  # ===========================================
+  # Detect authentication failures
+  - if [log_message] =~ /(?i)(authentication|login|auth).*failed/:
+    mutate:
+      add_field:
+        security_event: "authentication_failure"
+        security_severity: "medium"
+        
+  # Detect suspicious activity
+  - if [log_message] =~ /(?i)(brute.?force|attack|suspicious)/:
+    mutate:
+      add_field:
+        security_event: "suspicious_activity"
+        security_severity: "high"
+        
+  # Detect SQL injection attempts
+  - if [log_message] =~ /(?i)(union.*select|drop.*table|insert.*into)/:
+    mutate:
+      add_field:
+        security_event: "sql_injection_attempt"
+        security_severity: "critical"
+
+  # ===========================================
+  # FILTER 7: Performance Metrics Extraction
+  # ===========================================
+  # Extract response times
+  - if [log_message] =~ /response_time=/:
+    grok:
+      match:
+        log_message: "response_time=%{NUMBER:response_time:float}"
+        
+  # Extract memory usage
+  - if [log_message] =~ /memory_usage=/:
+    grok:
+      match:
+        log_message: "memory_usage=%{NUMBER:memory_usage:float}"
+        
+  # Extract CPU usage
+  - if [log_message] =~ /cpu_usage=/:
+    grok:
+      match:
+        log_message: "cpu_usage=%{NUMBER:cpu_usage:float}"
+
+  # ===========================================
+  # FILTER 8: Business Event Extraction
+  # ===========================================
+  # Booking events
+  - if [log_message] =~ /booking_(created|completed|cancelled|abandoned)/:
+    grok:
+      match:
+        log_message: "booking_%{WORD:booking_event}: booking_id=%{WORD:booking_id} user_id=%{WORD:user_id} amount=%{NUMBER:amount:float}"
+        
+    mutate:
+      add_field:
+        business_event: "booking"
+        event_type: "%{booking_event}"
+        
+  # Payment events
+  - if [log_message] =~ /payment_(completed|failed|refunded)/:
+    grok:
+      match:
+        log_message: "payment_%{WORD:payment_event}: payment_id=%{WORD:payment_id} booking_id=%{WORD:booking_id} amount=%{NUMBER:amount:float} method=%{WORD:payment_method}"
+        
+    mutate:
+      add_field:
+        business_event: "payment"
+        event_type: "%{payment_event}"
+
+  # ===========================================
+  # FILTER 9: Data Enrichment
+  # ===========================================
+  # Add timestamp parsing
+  date:
+    match:
+      - "timestamp": "ISO8601"
+    target: "@timestamp"
+    
+  # Add unique ID
+  uuid:
+    target: "log_id"
+    
+  # Add processing timestamp
+  mutate:
+    add_field:
+      processed_at: "%{@timestamp}"
+      
+  # Clean up fields
+  mutate:
+    remove_field:
+      - "host"
+      - "agent"
+      - "ecs"
+      - "input"
+      - "log"
+
+output:
+  # ===========================================
+  # OUTPUT 1: Elasticsearch
+  # ===========================================
+  elasticsearch:
+    hosts: ["elasticsearch:9200"]
+    index: "hotel-booking-logs-%{+YYYY.MM.dd}"
+    template_name: "hotel-booking-logs"
+    template_pattern: "hotel-booking-logs-*"
+    template:
+      settings:
+        number_of_shards: 3
+        number_of_replicas: 1
+        index:
+          refresh_interval: "5s"
+      mappings:
+        properties:
+          "@timestamp":
+            type: "date"
+          environment:
+            type: "keyword"
+          service_type:
+            type: "keyword"
+          technology:
+            type: "keyword"
+          log_level:
+            type: "keyword"
+          security_event:
+            type: "keyword"
+          security_severity:
+            type: "keyword"
+          business_event:
+            type: "keyword"
+          event_type:
+            type: "keyword"
+          response_time:
+            type: "float"
+          memory_usage:
+            type: "float"
+          cpu_usage:
+            type: "float"
+          amount:
+            type: "float"
+          geoip:
+            properties:
+              location:
+                type: "geo_point"
+              country_name:
+                type: "keyword"
+              city_name:
+                type: "keyword"
+          user_agent:
+            properties:
+              name:
+                type: "keyword"
+              os:
+                type: "keyword"
+              device:
+                type: "keyword"
+          kubernetes:
+            properties:
+              namespace:
+                type: "keyword"
+              pod_name:
+                type: "keyword"
+              container_name:
+                type: "keyword"
+              labels:
+                type: "object"
+              annotations:
+                type: "object"
+
+  # ===========================================
+  # OUTPUT 2: Debug (Development Only)
+  # ===========================================
+  stdout:
+    codec: "rubydebug"
+    enabled: false  # Set to true for debugging

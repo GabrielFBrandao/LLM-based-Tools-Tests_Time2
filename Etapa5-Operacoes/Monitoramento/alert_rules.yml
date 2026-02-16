@@ -1,0 +1,633 @@
+# Prometheus Alert Rules - Hotel Booking System
+# 
+# Métricas críticas de negócio e infraestrutura para monitoramento
+# 
+# Categorias:
+# 1. Disponibilidade (Uptime, Health Checks)
+# 2. Performance (Latência, Throughput)
+# 3. Erros (Error Rate, Exception Rate)
+# 4. Recursos (CPU, Memory, Disk)
+# 5. Negócio (Booking Rate, Conversion)
+# 6. Segurança (Auth Failures, Suspicious Activity)
+#
+groups:
+  # ===========================================
+  # 1. DISPOIBILIDADE - UPTIME E HEALTH CHECKS
+  # ===========================================
+  - name: availability.rules
+    rules:
+      # Frontend Down
+      - alert: FrontendDown
+        expr: up{job="frontend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: frontend
+          team: frontend
+        annotations:
+          summary: "Frontend está offline"
+          description: "Frontend {{ $labels.instance }} está down há mais de 1 minuto"
+          runbook_url: "https://runbooks.hotel-booking.com/frontend-down"
+          dashboard_url: "https://grafana.hotel-booking.com/d/frontend-overview"
+
+      # Backend Down
+      - alert: BackendDown
+        expr: up{job="backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: backend
+          team: backend
+        annotations:
+          summary: "Backend está offline"
+          description: "Backend {{ $labels.instance }} está down há mais de 1 minuto"
+          runbook_url: "https://runbooks.hotel-booking.com/backend-down"
+          dashboard_url: "https://grafana.hotel-booking.com/d/backend-overview"
+
+      # Database Down
+      - alert: DatabaseDown
+        expr: up{job="database"} == 0
+        for: 30s
+        labels:
+          severity: critical
+          service: database
+          team: backend
+        annotations:
+          summary: "Database está offline"
+          description: "Database {{ $labels.instance }} está down há mais de 30 segundos"
+          runbook_url: "https://runbooks.hotel-booking.com/database-down"
+          dashboard_url: "https://grafana.hotel-booking.com/d/database-overview"
+
+      # Redis Down
+      - alert: RedisDown
+        expr: up{job="redis"} == 0
+        for: 30s
+        labels:
+          severity: critical
+          service: cache
+          team: backend
+        annotations:
+          summary: "Redis está offline"
+          description: "Redis {{ $labels.instance }} está down há mais de 30 segundos"
+          runbook_url: "https://runbooks.hotel-booking.com/redis-down"
+          dashboard_url: "https://grafana.hotel-booking.com/d/cache-overview"
+
+      # Health Check Failure
+      - alert: HealthCheckFailure
+        expr: probe_success == 0
+        for: 2m
+        labels:
+          severity: warning
+          service: health-check
+          team: sre
+        annotations:
+          summary: "Health check falhando"
+          description: "Health check para {{ $labels.instance }} está falhando há 2 minutos"
+          runbook_url: "https://runbooks.hotel-booking.com/health-check-failure"
+
+      # Pod Restart Loop
+      - alert: PodRestartLoop
+        expr: rate(kube_pod_container_status_restarts_total[15m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+          service: kubernetes
+          team: sre
+        annotations:
+          summary: "Pod em restart loop"
+          description: "Pod {{ $labels.pod }} está reiniciando frequentemente"
+          runbook_url: "https://runbooks.hotel-booking.com/pod-restart-loop"
+
+  # ===========================================
+  # 2. PERFORMANCE - LATÊNCIA E THROUGHPUT
+  # ===========================================
+  - name: performance.rules
+    rules:
+      # High Response Time - Frontend
+      - alert: FrontendHighResponseTime
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job="frontend"}[5m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+          service: frontend
+          team: frontend
+        annotations:
+          summary: "Alta latência no Frontend"
+          description: "95th percentile response time é {{ $value }}s (limite: 2s)"
+          runbook_url: "https://runbooks.hotel-booking.com/high-response-time"
+          dashboard_url: "https://grafana.hotel-booking.com/d/frontend-performance"
+
+      # High Response Time - Backend
+      - alert: BackendHighResponseTime
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job="backend"}[5m])) > 1.5
+        for: 5m
+        labels:
+          severity: warning
+          service: backend
+          team: backend
+        annotations:
+          summary: "Alta latência no Backend"
+          description: "95th percentile response time é {{ $value }}s (limite: 1.5s)"
+          runbook_url: "https://runbooks.hotel-booking.com/high-response-time"
+          dashboard_url: "https://grafana.hotel-booking.com/d/backend-performance"
+
+      # Database Slow Queries
+      - alert: DatabaseSlowQueries
+        expr: pg_stat_activity_max_duration_seconds > 5
+        for: 2m
+        labels:
+          severity: warning
+          service: database
+          team: backend
+        annotations:
+          summary: "Queries lentas no database"
+          description: "Query executando há {{ $value }} segundos (limite: 5s)"
+          runbook_url: "https://runbooks.hotel-booking.com/slow-queries"
+          dashboard_url: "https://grafana.hotel-booking.com/d/database-performance"
+
+      # Redis High Latency
+      - alert: RedisHighLatency
+        expr: redis_slowlog_length > 10
+        for: 5m
+        labels:
+          severity: warning
+          service: cache
+          team: backend
+        annotations:
+          summary: "Alta latência no Redis"
+          description: "{{ $value }} queries lentas no Redis (limite: 10)"
+          runbook_url: "https://runbooks.hotel-booking.com/redis-latency"
+          dashboard_url: "https://grafana.hotel-booking.com/d/cache-performance"
+
+      # Low Throughput - Frontend
+      - alert: FrontendLowThroughput
+        expr: rate(http_requests_total{job="frontend"}[5m]) < 10
+        for: 10m
+        labels:
+          severity: warning
+          service: frontend
+          team: frontend
+        annotations:
+          summary: "Baixo throughput no Frontend"
+          description: "Throughput é {{ $value }} req/s (limite: 10 req/s)"
+          runbook_url: "https://runbooks.hotel-booking.com/low-throughput"
+          dashboard_url: "https://grafana.hotel-booking.com/d/frontend-throughput"
+
+      # Low Throughput - Backend
+      - alert: BackendLowThroughput
+        expr: rate(http_requests_total{job="backend"}[5m]) < 5
+        for: 10m
+        labels:
+          severity: warning
+          service: backend
+          team: backend
+        annotations:
+          summary: "Baixo throughput no Backend"
+          description: "Throughput é {{ $value }} req/s (limite: 5 req/s)"
+          runbook_url: "https://runbooks.hotel-booking.com/low-throughput"
+          dashboard_url: "https://grafana.hotel-booking.com/d/backend-throughput"
+
+      # High CPU Usage
+      - alert: HighCPUUsage
+        expr: rate(container_cpu_usage_seconds_total[5m]) * 100 > 80
+        for: 10m
+        labels:
+          severity: warning
+          service: infrastructure
+          team: sre
+        annotations:
+          summary: "Alto uso de CPU"
+          description: "CPU usage é {{ $value }}% (limite: 80%)"
+          runbook_url: "https://runbooks.hotel-booking.com/high-cpu"
+          dashboard_url: "https://grafana.hotel-booking.com/d/infrastructure-overview"
+
+      # High Memory Usage
+      - alert: HighMemoryUsage
+        expr: (container_memory_usage_bytes / container_spec_memory_limit_bytes) * 100 > 85
+        for: 10m
+        labels:
+          severity: warning
+          service: infrastructure
+          team: sre
+        annotations:
+          summary: "Alto uso de memória"
+          description: "Memory usage é {{ $value }}% (limite: 85%)"
+          runbook_url: "https://runbooks.hotel-booking.com/high-memory"
+          dashboard_url: "https://grafana.hotel-booking.com/d/infrastructure-overview"
+
+  # ===========================================
+  # 3. ERROS - ERROR RATE E EXCEPTIONS
+  # ===========================================
+  - name: error.rules
+    rules:
+      # High Error Rate - Frontend
+      - alert: FrontendHighErrorRate
+        expr: rate(http_requests_total{job="frontend",status=~"5.."}[5m]) / rate(http_requests_total{job="frontend"}[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          service: frontend
+          team: frontend
+        annotations:
+          summary: "Alta taxa de erros no Frontend"
+          description: "Error rate é {{ $value | humanizePercentage }} (limite: 5%)"
+          runbook_url: "https://runbooks.hotel-booking.com/high-error-rate"
+          dashboard_url: "https://grafana.hotel-booking.com/d/frontend-errors"
+
+      # High Error Rate - Backend
+      - alert: BackendHighErrorRate
+        expr: rate(http_requests_total{job="backend",status=~"5.."}[5m]) / rate(http_requests_total{job="backend"}[5m]) > 0.02
+        for: 5m
+        labels:
+          severity: critical
+          service: backend
+          team: backend
+        annotations:
+          summary: "Alta taxa de erros no Backend"
+          description: "Error rate é {{ $value | humanizePercentage }} (limite: 2%)"
+          runbook_url: "https://runbooks.hotel-booking.com/high-error-rate"
+          dashboard_url: "https://grafana.hotel-booking.com/d/backend-errors"
+
+      # Database Connection Errors
+      - alert: DatabaseConnectionErrors
+        expr: rate(pg_stat_database_xact_rollback{datname="hotel_booking"}[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: critical
+          service: database
+          team: backend
+        annotations:
+          summary: "Erros de conexão no database"
+          description: "Transaction rollback rate é {{ $value }}/s (limite: 0.1/s)"
+          runbook_url: "https://runbooks.hotel-booking.com/db-connection-errors"
+          dashboard_url: "https://grafana.hotel-booking.com/d/database-errors"
+
+      # Redis Connection Errors
+      - alert: RedisConnectionErrors
+        expr: increase(redis_connections_rejected_total[5m]) > 5
+        for: 2m
+        labels:
+          severity: warning
+          service: cache
+          team: backend
+        annotations:
+          summary: "Erros de conexão no Redis"
+          description: "{{ $value }} conexões rejeitadas no Redis (limite: 5)"
+          runbook_url: "https://runbooks.hotel-booking.com/redis-connection-errors"
+          dashboard_url: "https://grafana.hotel-booking.com/d/cache-errors"
+
+      # Java Exceptions
+      - alert: JavaHighExceptionRate
+        expr: rate(jvm_gc_collection_seconds_sum[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          service: backend
+          team: backend
+        annotations:
+          summary: "Alta taxa de exceptions Java"
+          description: "GC collection rate é {{ $value }}s/s (limite: 0.1s/s)"
+          runbook_url: "https://runbooks.hotel-booking.com/java-exceptions"
+          dashboard_url: "https://grafana.hotel-booking.com/d/jvm-performance"
+
+      # JavaScript Errors
+      - alert: JavaScriptErrors
+        expr: increase(browser_errors_total[5m]) > 10
+        for: 2m
+        labels:
+          severity: warning
+          service: frontend
+          team: frontend
+        annotations:
+          summary: "Erros JavaScript no Frontend"
+          description: "{{ $value }} erros JavaScript em 5 minutos (limite: 10)"
+          runbook_url: "https://runbooks.hotel-booking.com/js-errors"
+          dashboard_url: "https://grafana.hotel-booking.com/d/frontend-errors"
+
+      # 4xx Errors
+      - alert: High4xxErrorRate
+        expr: rate(http_requests_total{status=~"4.."}[5m]) / rate(http_requests_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          service: application
+          team: frontend
+        annotations:
+          summary: "Alta taxa de erros 4xx"
+          description: "4xx error rate é {{ $value | humanizePercentage }} (limite: 10%)"
+          runbook_url: "https://runbooks.hotel-booking.com/4xx-errors"
+          dashboard_url: "https://grafana.hotel-booking.com/d/http-errors"
+
+      # 5xx Errors
+      - alert: High5xxErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.01
+        for: 2m
+        labels:
+          severity: critical
+          service: application
+          team: backend
+        annotations:
+          summary: "Alta taxa de erros 5xx"
+          description: "5xx error rate é {{ $value | humanizePercentage }} (limite: 1%)"
+          runbook_url: "https://runbooks.hotel-booking.com/5xx-errors"
+          dashboard_url: "https://grafana.hotel-booking.com/d/http-errors"
+
+  # ===========================================
+  # 4. RECURSOS - INFRAESTRUTURA
+  # ===========================================
+  - name: infrastructure.rules
+    rules:
+      # Disk Space Low
+      - alert: DiskSpaceLow
+        expr: (node_filesystem_avail_bytes / node_filesystem_size_bytes) * 100 < 10
+        for: 5m
+        labels:
+          severity: critical
+          service: infrastructure
+          team: sre
+        annotations:
+          summary: "Espaço em disco baixo"
+          description: "Disk space disponível é {{ $value }}% (limite: 10%)"
+          runbook_url: "https://runbooks.hotel-booking.com/disk-space-low"
+          dashboard_url: "https://grafana.hotel-booking.com/d/infrastructure-overview"
+
+      # Disk I/O High
+      - alert: DiskIOHigh
+        expr: rate(node_disk_io_time_seconds_total[5m]) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          service: infrastructure
+          team: sre
+        annotations:
+          summary: "Alto I/O de disco"
+          description: "Disk I/O time é {{ $value }} (limite: 0.8)"
+          runbook_url: "https://runbooks.hotel-booking.com/disk-io-high"
+          dashboard_url: "https://grafana.hotel-booking.com/d/infrastructure-overview"
+
+      # Network Latency High
+      - alert: NetworkLatencyHigh
+        expr: probe_duration_seconds > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          service: network
+          team: sre
+        annotations:
+          summary: "Alta latência de rede"
+          description: "Network latency é {{ $value }}s (limite: 0.5s)"
+          runbook_url: "https://runbooks.hotel-booking.com/network-latency"
+          dashboard_url: "https://grafana.hotel-booking.com/d/network-overview"
+
+      # Network Packet Loss
+      - alert: NetworkPacketLoss
+        expr: probe_success == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: network
+          team: sre
+        annotations:
+          summary: "Perda de pacotes de rede"
+          description: "Packet loss detectado para {{ $labels.instance }}"
+          runbook_url: "https://runbooks.hotel-booking.com/packet-loss"
+          dashboard_url: "https://grafana.hotel-booking.com/d/network-overview"
+
+      # Pod Pending
+      - alert: PodPending
+        expr: kube_pod_status_phase{phase="Pending"} == 1
+        for: 10m
+        labels:
+          severity: warning
+          service: kubernetes
+          team: sre
+        annotations:
+          summary: "Pod em estado pending"
+          description: "Pod {{ $labels.pod }} está pending há 10 minutos"
+          runbook_url: "https://runbooks.hotel-booking.com/pod-pending"
+          dashboard_url: "https://grafana.hotel-booking.com/d/kubernetes-overview"
+
+      # Node Not Ready
+      - alert: NodeNotReady
+        expr: kube_node_status_condition{condition="Ready",status="true"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          service: kubernetes
+          team: sre
+        annotations:
+          summary: "Node não está ready"
+          description: "Node {{ $labels.node }} não está ready há 5 minutos"
+          runbook_url: "https://runbooks.hotel-booking.com/node-not-ready"
+          dashboard_url: "https://grafana.hotel-booking.com/d/kubernetes-overview"
+
+  # ===========================================
+  # 5. NEGÓCIO - MÉTRICAS DE BOOKING
+  # ===========================================
+  - name: business.rules
+    rules:
+      # Low Booking Rate
+      - alert: LowBookingRate
+        expr: rate(bookings_created_total[1h]) < 1
+        for: 30m
+        labels:
+          severity: warning
+          service: business
+          team: product
+        annotations:
+          summary: "Baixa taxa de reservas"
+          description: "Booking rate é {{ $value }}/hora (limite: 1/hora)"
+          runbook_url: "https://runbooks.hotel-booking.com/low-booking-rate"
+          dashboard_url: "https://grafana.hotel-booking.com/d/business-metrics"
+
+      # Low Conversion Rate
+      - alert: LowConversionRate
+        expr: rate(bookings_completed_total[1h]) / rate(bookings_initiated_total[1h]) < 0.3
+        for: 30m
+        labels:
+          severity: warning
+          service: business
+          team: product
+        annotations:
+          summary: "Baixa taxa de conversão"
+          description: "Conversion rate é {{ $value | humanizePercentage }} (limite: 30%)"
+          runbook_url: "https://runbooks.hotel-booking.com/low-conversion-rate"
+          dashboard_url: "https://grafana.hotel-booking.com/d/business-metrics"
+
+      # High Cart Abandonment
+      - alert: HighCartAbandonment
+        expr: rate(bookings_abandoned_total[1h]) / rate(bookings_initiated_total[1h]) > 0.7
+        for: 15m
+        labels:
+          severity: warning
+          service: business
+          team: product
+        annotations:
+          summary: "Alta taxa de abandono"
+          description: "Cart abandonment rate é {{ $value | humanizePercentage }} (limite: 70%)"
+          runbook_url: "https://runbooks.hotel-booking.com/high-abandonment"
+          dashboard_url: "https://grafana.hotel-booking.com/d/business-metrics"
+
+      # Payment Failures
+      - alert: PaymentFailures
+        expr: rate(payment_failures_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: critical
+          service: business
+          team: product
+        annotations:
+          summary: "Falhas de pagamento"
+          description: "Payment failure rate é {{ $value }}/s (limite: 0.1/s)"
+          runbook_url: "https://runbooks.hotel-booking.com/payment-failures"
+          dashboard_url: "https://grafana.hotel-booking.com/d/business-metrics"
+
+      # Low Room Availability
+      - alert: LowRoomAvailability
+        expr: (rooms_available_total / rooms_total_total) < 0.1
+        for: 5m
+        labels:
+          severity: warning
+          service: business
+          team: operations
+        annotations:
+          summary: "Baixa disponibilidade de quartos"
+          description: "Room availability é {{ $value | humanizePercentage }} (limite: 10%)"
+          runbook_url: "https://runbooks.hotel-booking.com/low-availability"
+          dashboard_url: "https://grafana.hotel-booking.com/d/operations-metrics"
+
+      # High Cancellation Rate
+      - alert: HighCancellationRate
+        expr: rate(bookings_cancelled_total[1h]) / rate(bookings_completed_total[1h]) > 0.2
+        for: 30m
+        labels:
+          severity: warning
+          service: business
+          team: product
+        annotations:
+          summary: "Alta taxa de cancelamento"
+          description: "Cancellation rate é {{ $value | humanizePercentage }} (limite: 20%)"
+          runbook_url: "https://runbooks.hotel-booking.com/high-cancellation"
+          dashboard_url: "https://grafana.hotel-booking.com/d/business-metrics"
+
+  # ===========================================
+  # 6. SEGURANÇA - AUTH E VULNERABILIDADES
+  # ===========================================
+  - name: security.rules
+    rules:
+      # High Authentication Failures
+      - alert: HighAuthFailures
+        expr: rate(auth_failures_total[5m]) > 10
+        for: 2m
+        labels:
+          severity: warning
+          service: security
+          team: security
+        annotations:
+          summary: "Alta taxa de falhas de autenticação"
+          description: "Auth failure rate é {{ $value }}/s (limite: 10/s)"
+          runbook_url: "https://runbooks.hotel-booking.com/auth-failures"
+          dashboard_url: "https://grafana.hotel-booking.com/d/security-overview"
+
+      # Suspicious Activity
+      - alert: SuspiciousActivity
+        expr: rate(suspicious_requests_total[5m]) > 5
+        for: 2m
+        labels:
+          severity: critical
+          service: security
+          team: security
+        annotations:
+          summary: "Atividade suspeita detectada"
+          description: "Suspicious activity rate é {{ $value }}/s (limite: 5/s)"
+          runbook_url: "https://runbooks.hotel-booking.com/suspicious-activity"
+          dashboard_url: "https://grafana.hotel-booking.com/d/security-overview"
+
+      # Brute Force Attack
+      - alert: BruteForceAttack
+        expr: rate(login_attempts_total{status="failed"}[1m]) > 20
+        for: 1m
+        labels:
+          severity: critical
+          service: security
+          team: security
+        annotations:
+          summary: "Ataque de brute force detectado"
+          description: "Failed login rate é {{ $value }}/s (limite: 20/s)"
+          runbook_url: "https://runbooks.hotel-booking.com/brute-force"
+          dashboard_url: "https://grafana.hotel-booking.com/d/security-overview"
+
+      # SSL Certificate Expiring
+      - alert: SSLCertificateExpiring
+        expr: probe_ssl_earliest_cert_expiry - time() < 86400 * 7
+        for: 0m
+        labels:
+          severity: warning
+          service: security
+          team: security
+        annotations:
+          summary: "Certificado SSL expirando em breve"
+          description: "SSL certificate expira em {{ $value }} dias"
+          runbook_url: "https://runbooks.hotel-booking.com/ssl-expiry"
+          dashboard_url: "https://grafana.hotel-booking.com/d/security-overview"
+
+      # Vulnerability Scan Failed
+      - alert: VulnerabilityScanFailed
+        expr: vulnerability_scan_status == 0
+        for: 0m
+        labels:
+          severity: warning
+          service: security
+          team: security
+        annotations:
+          summary: "Scan de vulnerabilidade falhou"
+          description: "Vulnerability scan falhou para {{ $labels.target }}"
+          runbook_url: "https://runbooks.hotel-booking.com/vulnerability-scan"
+          dashboard_url: "https://grafana.hotel-booking.com/d/security-overview"
+
+  # ===========================================
+  # 7. SLO/SLA - SERVICE LEVEL OBJECTIVES
+  # ===========================================
+  - name: slo.rules
+    rules:
+      # SLO Breach - Availability
+      - alert: SLOBreachAvailability
+        expr: (sum(rate(http_requests_total{job=~"frontend|backend"}[5m])) - sum(rate(http_requests_total{job=~"frontend|backend",status!~"5.."}[5m]))) / sum(rate(http_requests_total{job=~"frontend|backend"}[5m])) > 0.01
+        for: 5m
+        labels:
+          severity: critical
+          service: slo
+          team: sre
+        annotations:
+          summary: "SLO de disponibilidade violado"
+          description: "Availability SLO breach: {{ $value | humanizePercentage }} (target: 99%)"
+          runbook_url: "https://runbooks.hotel-booking.com/slo-breach"
+          dashboard_url: "https://grafana.hotel-booking.com/d/slo-overview"
+
+      # SLO Breach - Latency
+      - alert: SLOBreachLatency
+        expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job=~"frontend|backend"}[5m])) by (le)) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          service: slo
+          team: sre
+        annotations:
+          summary: "SLO de latência violado"
+          description: "Latency SLO breach: {{ $value }}s (target: 0.5s)"
+          runbook_url: "https://runbooks.hotel-booking.com/slo-breach"
+          dashboard_url: "https://grafana.hotel-booking.com/d/slo-overview"
+
+      # SLA Breach - Uptime
+      - alert: SLABreachUptime
+        expr: avg_over_time(up{job=~"frontend|backend"}[30d]) < 0.999
+        for: 0m
+        labels:
+          severity: critical
+          service: sla
+          team: sre
+        annotations:
+          summary: "SLA de uptime violado"
+          description: "Uptime SLA breach: {{ $value | humanizePercentage }} (target: 99.9%)"
+          runbook_url: "https://runbooks.hotel-booking.com/sla-breach"
+          dashboard_url: "https://grafana.hotel-booking.com/d/sla-overview"

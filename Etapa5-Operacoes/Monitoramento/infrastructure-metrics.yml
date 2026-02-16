@@ -1,0 +1,228 @@
+# Grafana Dashboard - Infrastructure Metrics
+# Hotel Booking System - Métricas de Infraestrutura
+#
+# Dashboard ID: infrastructure-metrics
+# Tags: hotel-booking, infrastructure, kubernetes
+# Refresh: 30s
+# Time Range: Last 1 hour
+#
+dashboard:
+  id: null
+  title: "Hotel Booking - Infrastructure Metrics"
+  tags: ["hotel-booking", "infrastructure", "kubernetes"]
+  timezone: "browser"
+  refresh: "30s"
+  time:
+    from: "now-1h"
+    to: "now"
+  
+  panels:
+    # ===========================================
+    # PANEL 1: Cluster Overview
+    # ===========================================
+    - id: 1
+      title: "Cluster Overview"
+      type: "stat"
+      gridPos:
+        h: 8
+        w: 12
+        x: 0
+        y: 0
+      
+      targets:
+        - expr: "sum(up{job=\"kubernetes-nodes\"})"
+          legendFormat: "Nodes Up"
+          refId: "A"
+        - expr: "sum(kube_node_info)"
+          legendFormat: "Total Nodes"
+          refId: "B"
+      
+      fieldConfig:
+        defaults:
+          unit: "short"
+          thresholds:
+            steps:
+              - color: "green"
+                value: null
+              - color: "yellow"
+                value: 2
+              - color: "red"
+                value: 1
+
+    # ===========================================
+    # PANEL 2: Pod Status
+    # ===========================================
+    - id: 2
+      title: "Pod Status"
+      type: "piechart"
+      gridPos:
+        h: 8
+        w: 12
+        x: 12
+        y: 0
+      
+      targets:
+        - expr: "sum(kube_pod_status_phase{phase=\"Running\"})"
+          legendFormat: "Running"
+          refId: "A"
+        - expr: "sum(kube_pod_status_phase{phase=\"Pending\"})"
+          legendFormat: "Pending"
+          refId: "B"
+        - expr: "sum(kube_pod_status_phase{phase=\"Failed\"})"
+          legendFormat: "Failed"
+          refId: "C"
+        - expr: "sum(kube_pod_status_phase{phase=\"Succeeded\"})"
+          legendFormat: "Succeeded"
+          refId: "D"
+
+    # ===========================================
+    # PANEL 3: CPU Usage
+    # ===========================================
+    - id: 3
+      title: "CPU Usage"
+      type: "graph"
+      gridPos:
+        h: 8
+        w: 12
+        x: 0
+        y: 8
+      
+      targets:
+        - expr: "sum(rate(container_cpu_usage_seconds_total{namespace=\"hotel-booking-prod\"}[5m])) by (pod)"
+          legendFormat: "{{pod}}"
+          refId: "A"
+      
+      yAxes:
+        - label: "CPU Usage (%)"
+          min: 0
+          max: 100
+
+    # ===========================================
+    # PANEL 4: Memory Usage
+    # ===========================================
+    - id: 4
+      title: "Memory Usage"
+      type: "graph"
+      gridPos:
+        h: 8
+        w: 12
+        x: 12
+        y: 8
+      
+      targets:
+        - expr: "sum(container_memory_usage_bytes{namespace=\"hotel-booking-prod\"}) by (pod) / 1024 / 1024"
+          legendFormat: "{{pod}}"
+          refId: "A"
+      
+      yAxes:
+        - label: "Memory Usage (MB)"
+          min: 0
+
+    # ===========================================
+    # PANEL 5: Network Traffic
+    # ===========================================
+    - id: 5
+      title: "Network Traffic"
+      type: "graph"
+      gridPos:
+        h: 8
+        w: 12
+        x: 0
+        y: 16
+      
+      targets:
+        - expr: "sum(rate(container_network_receive_bytes_total{namespace=\"hotel-booking-prod\"}[5m])) by (pod)"
+          legendFormat: "RX {{pod}}"
+          refId: "A"
+        - expr: "sum(rate(container_network_transmit_bytes_total{namespace=\"hotel-booking-prod\"}[5m])) by (pod)"
+          legendFormat: "TX {{pod}}"
+          refId: "B"
+      
+      yAxes:
+        - label: "Network (bytes/s)"
+          min: 0
+
+    # ===========================================
+    # PANEL 6: Disk Usage
+    # ===========================================
+    - id: 6
+      title: "Disk Usage"
+      type: "graph"
+      gridPos:
+        h: 8
+        w: 12
+        x: 12
+        y: 16
+      
+      targets:
+        - expr: "(node_filesystem_size_bytes - node_filesystem_avail_bytes) / node_filesystem_size_bytes * 100"
+          legendFormat: "{{instance}}"
+          refId: "A"
+      
+      yAxes:
+        - label: "Disk Usage (%)"
+          min: 0
+          max: 100
+
+    # ===========================================
+    # PANEL 7: Service Health
+    # ===========================================
+    - id: 7
+      title: "Service Health"
+      type: "table"
+      gridPos:
+        h: 8
+        w: 12
+        x: 0
+        y: 24
+      
+      targets:
+        - expr: "up{job=~\"frontend|backend|database|redis\"}"
+          legendFormat: "{{job}}"
+          refId: "A"
+        - expr: "probe_success"
+          legendFormat: "probe {{instance}}"
+          refId: "B"
+      
+      transformations:
+        - id: "organize"
+          options:
+            excludeByName: {}
+            indexByName: {}
+            renameByName:
+              Time: "Timestamp"
+              Value: "Status"
+              job: "Service"
+              instance: "Instance"
+
+    # ===========================================
+    # PANEL 8: Resource Limits
+    # ===========================================
+    - id: 8
+      title: "Resource Limits"
+      type: "stat"
+      gridPos:
+        h: 8
+        w: 12
+        x: 12
+        y: 24
+      
+      targets:
+        - expr: "sum(kube_resourcequota{namespace=\"hotel-booking-prod\"})"
+          legendFormat: "Resource Quotas"
+          refId: "A"
+        - expr: "sum(kube_limitrange{namespace=\"hotel-booking-prod\"})"
+          legendFormat: "Limit Ranges"
+          refId: "B"
+      
+      fieldConfig:
+        defaults:
+          unit: "short"
+          thresholds:
+            steps:
+              - color: "green"
+                value: null
+              - color: "yellow"
+                value: 10
+              - color: "red"
+                value: 5
