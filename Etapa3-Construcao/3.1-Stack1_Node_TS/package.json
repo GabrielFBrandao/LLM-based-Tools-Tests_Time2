@@ -1,0 +1,17 @@
+{
+  "name": "hotel-reserva-sistema",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p .",
+    "start": "ts-node src/demo/quartos-demo.ts",
+    "dev": "ts-node-dev --respawn src/demo/quartos-demo.ts"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "ts-node": "^10.9.2",
+    "ts-node-dev": "^2.0.0"
+  }
+}
